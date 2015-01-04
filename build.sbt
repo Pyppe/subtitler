@@ -20,8 +20,10 @@ libraryDependencies ++= Seq(
   "org.joda"                   % "joda-convert"     % "1.7",
   "joda-time"                  % "joda-time"        % "2.6",
   "net.ceedubs"                %% "ficus"           % "1.1.2", // Scala-wrapper for Typesafe config
-  "org.rogach"                 %% "scallop"         % "0.9.5"
+  "org.rogach"                 %% "scallop"         % "0.9.5",
 
+  // Test
+  "org.scalatest"              %% "scalatest"       % "2.2.3" % "test"
 )
 
 resolvers += "Typesafe Repository" at "http://repo.typesafe.com/typesafe/releases/"

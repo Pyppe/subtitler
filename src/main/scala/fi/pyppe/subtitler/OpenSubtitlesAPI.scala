@@ -364,10 +364,10 @@ object OpenSubtitlesHasher {
 
   private def computeHashForChunk(buffer: ByteBuffer) : Long = {
     def doCompute(longBuffer: LongBuffer, hash: Long) : Long = {
-      longBuffer.hasRemaining match {
-        case false => hash
-        case true => doCompute(longBuffer, hash + longBuffer.get)
-      }
+      if (!longBuffer.hasRemaining)
+        hash
+      else
+        doCompute(longBuffer, hash + longBuffer.get)
     }
     val longBuffer = buffer.order(ByteOrder.LITTLE_ENDIAN).asLongBuffer()
     doCompute(longBuffer, 0L)
