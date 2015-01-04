@@ -4,7 +4,6 @@ import java.io.{File, FileInputStream}
 
 import com.typesafe.scalalogging.StrictLogging
 import org.joda.time.DateTime
-import play.api.libs.ws.WSResponse
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.xml.{Elem, XML}
@@ -23,7 +22,7 @@ case class Subtitle(matchedBy: MatchedBy, idSubMovieFile: String, hash: String, 
 }
 
 object OpenSubtitlesAPI extends StrictLogging {
-  import WSConfig._
+  import HttpUtils._
   import OpenSubtitlesHasher.computeHash
 
   @volatile
@@ -31,21 +30,9 @@ object OpenSubtitlesAPI extends StrictLogging {
   private val EndPoint = "http://api.opensubtitles.org/xml-rpc"
   //private val EndPoint = "http://localhost:8080/xml-rpc"
 
-  implicit class WSResponseExtras(res: WSResponse) {
-    def asXML() = XML.loadString(res.body)
-    def asAuthenticatedXML() = {
-      val xml = XML.loadString(res.body)
-      expiringToken = expiringToken.map {
-        case (token, time) => (token, DateTime.now)
-      }
-      xml
-    }
-  }
 
   def serverInfo(): Future[Elem] = {
-    WSClient.url(EndPoint).post(
-      <methodCall><methodName>ServerInfo</methodName></methodCall>
-    ).map(_.asXML)
+    postXML(EndPoint, <methodCall><methodName>ServerInfo</methodName></methodCall>)
   }
 
   private def parseRootMembers(xml: Elem): List[(String, String)] = {
@@ -109,7 +96,8 @@ object OpenSubtitlesAPI extends StrictLogging {
   }
 
 
-  private def withValidToken[T](action: String => Future[T])(implicit settings: Settings): Future[T] = {
+  private def withValidToken[T](action: String => Future[T])
+                               (implicit settings: Settings): Future[T] = {
     val future = expiringToken.filter( _._2.plusMinutes(14).isAfterNow ).map {
       case (token, _) =>
         action(token)
@@ -118,6 +106,9 @@ object OpenSubtitlesAPI extends StrictLogging {
     }
     future.onSuccess {
       case _ =>
+        expiringToken = expiringToken.map {
+          case (token, _) => (token, DateTime.now)
+        }
     }
 
     future
@@ -126,7 +117,7 @@ object OpenSubtitlesAPI extends StrictLogging {
   def logIn()(implicit settings: Settings): Future[String] = {
     val os = settings.openSubtitlesConf
     val language = "en"
-    WSClient.url(EndPoint).post(
+    val req =
       <methodCall>
         <methodName>LogIn</methodName>
         <params>
@@ -136,7 +127,7 @@ object OpenSubtitlesAPI extends StrictLogging {
           <param><value><string>{os.useragent}</string></value></param>
         </params>
       </methodCall>
-    ).map(_.asXML).map { xml =>
+    postXML(EndPoint, req).map { xml =>
       val members = parseRootMembers(xml).toMap
       val status = members("status")
       require(status == "200 OK", s"Invalid status: $status")
@@ -147,7 +138,7 @@ object OpenSubtitlesAPI extends StrictLogging {
     }
   }
 
-  def searchSubtitles(f: File)(implicit s: Settings): Future[List[Subtitle]] = withValidToken { token =>
+  def searchSubtitles(f: File)(implicit s: Settings): Future[List[Subtitle]] = withValidToken { _ =>
     logger.debug(s"Finding subtitles for ${f.getName}")
     Future.reduce(List(
       searchSubtitlesByTag(f.getName),
@@ -168,25 +159,22 @@ object OpenSubtitlesAPI extends StrictLogging {
     }
   }
 
-  def searchSubtitlesByTag(tag: String)(implicit s: Settings) = withValidToken { token =>
-    search(token, "tag" -> tag)
-  }
+  def searchSubtitlesByTag(tag: String)(implicit s: Settings) =
+    search("tag" -> tag)
 
-  def searchSubtitlesByFileHash(file: File)(implicit s: Settings) = withValidToken { token =>
+  def searchSubtitlesByFileHash(file: File)(implicit s: Settings) = {
     val hash = computeHash(file)
     val size = file.length
     search(
-      token,
       "moviehash"     -> hash,
       "moviebytesize" -> size
     )
   }
 
-  private def search(token: String, values: (String, Any)*)(implicit s: Settings): Future[List[Subtitle]] = {
+  private def search(values: (String, Any)*)
+                    (implicit s: Settings): Future[List[Subtitle]] = withValidToken { token =>
     val valuesWithLanguage = values :+ ("sublanguageid", s.languages.mkString(","))
-    WSClient.url(EndPoint).
-      post(searchSubtitlesQuery(token, valuesWithLanguage: _*)).
-      map(_.asAuthenticatedXML).
+    postXML(EndPoint, searchSubtitlesQuery(token, valuesWithLanguage: _*)).
       map(parseSearchResponse)
   }
 
@@ -204,9 +192,9 @@ object OpenSubtitlesAPI extends StrictLogging {
 
         Some(fileNameScore(targetName, subtitle.subFileName)).filter(_ > 1).map { nameScore =>
           val score =
-            languagePoints.getOrElse(subtitle.language, 0) +
+            languagePoints.getOrElse(subtitle.language, 0).toDouble +
               nameScore +
-              count
+              count - (subtitle.badCount/2)
 
           subtitle -> score
         }

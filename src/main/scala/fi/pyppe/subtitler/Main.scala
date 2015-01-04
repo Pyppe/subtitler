@@ -6,7 +6,7 @@ import org.apache.commons.io.FilenameUtils
 import scala.annotation.tailrec
 
 object Main {
-  import WSConfig._
+  //import WSConfig._
   import FileUtils._
   import org.rogach.scallop.ScallopConf
   import scala.concurrent.duration._
@@ -45,14 +45,14 @@ object Main {
       results.foreach(println)
       */
 
-      val file = videoFiles(2)
+      val file = videoFiles(0)
       val result = Await.result(OpenSubtitlesAPI.searchSubtitle(file), 10.seconds)
 
       println(result)
       println(file)
 
     } finally {
-      WSClient.close()
+      dispatch.Http.shutdown()
     }
   }
 
