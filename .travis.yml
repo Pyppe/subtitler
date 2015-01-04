@@ -1,0 +1,5 @@
+language: scala
+jdk: oraclejdk7
+sudo: false
+script:
+  - "echo noop"
