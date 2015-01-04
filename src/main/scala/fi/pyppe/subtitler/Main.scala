@@ -3,15 +3,15 @@ package fi.pyppe.subtitler
 import com.typesafe.config.ConfigFactory
 import java.io.File
 
+import com.typesafe.scalalogging.StrictLogging
 import org.apache.commons.io.FilenameUtils
 
 import scala.annotation.tailrec
 
-object Main extends App {
+object Main extends App with StrictLogging {
   import WSConfig._
   import FileUtils._
   import scala.concurrent.duration._
-  import scala.concurrent.ExecutionContext.Implicits.global
   import scala.concurrent.Await
 
   implicit val settings: Settings = {
@@ -24,17 +24,26 @@ object Main extends App {
   }
 
   val videoFiles = settings.watchDirs.map(FileUtils.findFiles(_, filter = isVideoFile)).flatten.distinct
-  println(videoFiles)
+  videoFiles.zipWithIndex.foreach {
+    case (file, idx) => println(s"$idx: ${file.getName}")
+  }
 
 
+  try {
+    /*
+    val results = OpenSubtitlesAPI.parseSearchResponse(xml.XML.loadFile(new File("/tmp/subtitles.xml")))
+    results.foreach(println)
+    */
 
-  /*
-  val foo = Await.result(WSClient.url("http://www.pyppe.fi/").get.map(_.body), 10.seconds)
-  println(foo)
-  */
+    val file = videoFiles(2)
+    Await.result(OpenSubtitlesAPI.logIn(), 10.seconds)
+    val foo = Await.result(OpenSubtitlesAPI.searchSubtitles(file), 10.seconds)
+    logger.debug(foo.toString)
+    println(file)
 
-
-  //WSClient.close()
+  } finally {
+    WSClient.close()
+  }
 
 
 

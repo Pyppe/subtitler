@@ -1,7 +1,9 @@
 package fi.pyppe.subtitler
 
-import play.api.libs.ws.DefaultWSClientConfig
+import play.api.libs.ws.{WSResponse, WSRequestHolder, DefaultWSClientConfig}
 import play.api.libs.ws.ning.NingAsyncHttpClientConfigBuilder
+
+import scala.xml.XML
 
 object WSConfig {
 
@@ -13,5 +15,10 @@ object WSConfig {
   }
 
   implicit val WSClient = new play.api.libs.ws.ning.NingWSClient(builder.build)
+
+  implicit class WSResponseExtras(res: WSResponse) {
+    def asXML() = XML.loadString(res.body)
+  }
+
 
 }
