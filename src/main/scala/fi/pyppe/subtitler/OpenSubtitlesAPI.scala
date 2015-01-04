@@ -1,7 +1,9 @@
 package fi.pyppe.subtitler
 
-import java.io.{File, FileInputStream}
+import java.io._
+import java.util.zip.GZIPInputStream
 
+import com.ning.http.util.Base64
 import com.typesafe.scalalogging.StrictLogging
 import org.joda.time.DateTime
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -19,6 +21,10 @@ case class Subtitle(matchedBy: MatchedBy, idSubMovieFile: String, hash: String, 
                     format: String, cdCount: Int, downloadCount: Int, rating: Double, badCount: Int, idMovie: String,
                     imdbId: String, movieName: String, movieNameEng: String, movieYear: Int) {
   def downloadId = idSubtitleFile
+}
+case class DownloadedSubtitle(id: String, encodedData: String) {
+  lazy val contentBytes: Array[Byte] = OpenSubtitlesDecoder.decodeAndDecompress(encodedData)
+  override def toString() = s"DownloadedSubtitle($id, length = ${encodedData.length})"
 }
 
 object OpenSubtitlesAPI extends StrictLogging {
@@ -159,6 +165,38 @@ object OpenSubtitlesAPI extends StrictLogging {
     }
   }
 
+  def downloadSubtitles(ids: String*)(implicit s: Settings): Future[List[DownloadedSubtitle]] = withValidToken { token =>
+    logger.debug(s"Downloading IDs: ${ids.mkString(" ")}")
+    val idValues = ids.map { id =>
+      <value><string>{id}</string></value>
+    }
+    val req =
+      <methodCall>
+        <methodName>DownloadSubtitles</methodName>
+        <params>
+          <param><value><string>{token}</string></value></param>
+          <param>
+            <value>
+              <array>
+                <data>
+                  {idValues}
+                </data>
+              </array>
+            </value>
+          </param>
+        </params>
+      </methodCall>
+
+    postXML(EndPoint, req).map { xml =>
+      val values = (xml \\ "array" \\ "member").map { member =>
+        (member \ "value").text.trim
+      }
+      values.grouped(2).collect {
+        case Seq(a, b) => DownloadedSubtitle(a, b)
+      }.toList
+    }
+  }
+
   def searchSubtitlesByTag(tag: String)(implicit s: Settings) =
     search("tag" -> tag)
 
@@ -276,6 +314,28 @@ object OpenSubtitlesAPI extends StrictLogging {
     </methodCall>
   }
 
+}
+
+object OpenSubtitlesDecoder {
+  def decodeAndDecompress(encodedData: String): Array[Byte] = {
+    val decodedBytes = Base64.decode(encodedData)
+
+    val gis = new GZIPInputStream(new ByteArrayInputStream(decodedBytes))
+    val buf = new Array[Byte](1024)
+    val baos = new ByteArrayOutputStream()
+    val out = new BufferedOutputStream(baos)
+    try {
+      var n = gis.read(buf)
+      while (n >= 0) {
+        out.write(buf, 0, n)
+        n = gis.read(buf)
+      }
+    } finally {
+      out.flush
+      out.close
+    }
+    baos.toByteArray
+  }
 }
 
 // See http://trac.opensubtitles.org/projects/opensubtitles/wiki/HashSourceCodes#Scala

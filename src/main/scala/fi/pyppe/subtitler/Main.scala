@@ -30,7 +30,6 @@ object Main {
     }
 
     val params = new Params(args)
-    println(params)
 
     val videoFiles = settings.watchDirs.map(FileUtils.findFiles(_, filter = isVideoFile)).flatten.distinct
     val videoFilesWithoutSubtitles = videoFiles.filter(existingSubtitles(_).isEmpty)
@@ -45,11 +44,20 @@ object Main {
       results.foreach(println)
       */
 
-      val file = videoFiles(0)
+      /*
+      val file = videoFiles(1)
       val result = Await.result(OpenSubtitlesAPI.searchSubtitle(file), 10.seconds)
-
       println(result)
       println(file)
+      result.map { subtitle =>
+        val res = Await.result(OpenSubtitlesAPI.downloadSubtitles(subtitle.downloadId), 20.seconds)
+        println(res)
+      }
+      */
+
+      val res = Await.result(OpenSubtitlesAPI.downloadSubtitles("1954499037", "1954510340"), 20.seconds)
+      println(new String(res(0).contentBytes))
+      println(res)
 
     } finally {
       dispatch.Http.shutdown()
