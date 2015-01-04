@@ -1,6 +1,8 @@
 subtitler
 =========
 
+[![Build Status](https://travis-ci.org/Pyppe/subtitler.svg)](https://travis-ci.org/Pyppe/subtitler)
+
 Example of `application.conf`:
 ```
 watchDirs = ["/home/pyppe/series", "/mnt/media/some-dir"]
