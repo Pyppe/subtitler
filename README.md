@@ -4,6 +4,7 @@ subtitler
 Example of `application.conf`:
 ```
 watchDirs = ["/home/pyppe/series", "/mnt/media/some-dir"]
+languages = ["eng", "fin"]
 credentials {
   openSubtitles {
     login = "my-login-to-opensubtitles.org"

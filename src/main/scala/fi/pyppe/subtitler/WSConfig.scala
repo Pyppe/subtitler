@@ -16,9 +16,5 @@ object WSConfig {
 
   implicit val WSClient = new play.api.libs.ws.ning.NingWSClient(builder.build)
 
-  implicit class WSResponseExtras(res: WSResponse) {
-    def asXML() = XML.loadString(res.body)
-  }
-
 
 }

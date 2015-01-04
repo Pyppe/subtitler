@@ -20,7 +20,8 @@ object Main extends App with StrictLogging {
     val config = ConfigFactory.load()
     val watchDirs = config.as[List[String]]("watchDirs") map (new File(_))
     val openSubtitles = config.as[OpenSubtitlesConf]("credentials.openSubtitles")
-    Settings(watchDirs, openSubtitles)
+    val languages = config.getAs[List[String]]("languages").getOrElse(Nil)
+    Settings(watchDirs, languages, openSubtitles)
   }
 
   val videoFiles = settings.watchDirs.map(FileUtils.findFiles(_, filter = isVideoFile)).flatten.distinct
@@ -35,10 +36,10 @@ object Main extends App with StrictLogging {
     results.foreach(println)
     */
 
-    val file = videoFiles(2)
-    Await.result(OpenSubtitlesAPI.logIn(), 10.seconds)
-    val foo = Await.result(OpenSubtitlesAPI.searchSubtitles(file), 10.seconds)
-    logger.debug(foo.toString)
+    val file = videoFiles(3)
+    val result = Await.result(OpenSubtitlesAPI.searchSubtitle(file), 10.seconds)
+
+    println(result)
     println(file)
 
   } finally {
