@@ -20,7 +20,7 @@ libraryDependencies ++= Seq(
   "org.joda"                   % "joda-convert"     % "1.7",
   "joda-time"                  % "joda-time"        % "2.6",
   "net.ceedubs"                %% "ficus"           % "1.1.2", // Scala-wrapper for Typesafe config
-  "org.rogach"                 %% "scallop"         % "0.9.5",
+  "com.github.scopt"           %% "scopt"           % "3.3.0",
 
   // Test
   "org.scalatest"              %% "scalatest"       % "2.2.3" % "test"
@@ -37,6 +37,7 @@ assemblyMergeStrategy in assembly := {
   case PathList("scala", "concurrent", xs @ _*)                     => MergeStrategy.first
   case PathList("scala", "reflect", "internal", xs @ _*)            => MergeStrategy.first
   case "logback.xml"                                                => MergeStrategy.first
+  case "application.conf"                                           => MergeStrategy.discard
   case x =>
     val oldStrategy = (assemblyMergeStrategy in assembly).value
     oldStrategy(x)
