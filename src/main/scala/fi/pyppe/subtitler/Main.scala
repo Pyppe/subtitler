@@ -1,22 +1,20 @@
 package fi.pyppe.subtitler
 
 import com.typesafe.config.ConfigFactory
-import java.io.File
-import org.apache.commons.io.FilenameUtils
+import java.io.{FileWriter, File}
+import org.apache.commons.io.{IOUtils, FilenameUtils}
 import scala.annotation.tailrec
+import scala.concurrent.Future
+import scala.util.{Failure, Success, Try}
 
 object Main {
   //import WSConfig._
   import FileUtils._
   import scala.concurrent.duration._
   import scala.concurrent.Await
+  import scala.concurrent.ExecutionContext.Implicits.global
 
-  case class Params(file: Option[File] = None, imdb: Option[String] = None) {
-    def imdbId = imdb flatMap {
-      case Params.ImdbId(id) => Some(id)
-      case _ => None
-    }
-  }
+  case class Params(files: Seq[File] = Nil, interactive: Boolean = false)
   object Params {
     val ImdbId = """.*(tt[0-9]+).*""".r
   }
@@ -25,6 +23,7 @@ object Main {
   val parser = new scopt.OptionParser[Params]("subtitler") {
     head("subtitler", "1.0")
 
+    /*
     // --file <video-file>
     opt[File]('f', "file") optional() valueName("<video-file>") action { (file, p) =>
       p.copy(file = Some(file))
@@ -37,8 +36,26 @@ object Main {
       if (id.matches(Params.ImdbId.regex)) success
       else failure(s"<imdb-id> must match ${Params.ImdbId.regex}")
     } text("Search subtitle with given <imdb-id> (e.g. tt0133093)")
+    */
 
-    help("help") text("Prints this usage text")
+    // --interactive
+    opt[Unit]('i', "interactive") action { (_, p) =>
+      p.copy(interactive = true)
+    } text "Interactive-mode: Select downloaded subtitle from options by yourself"
+
+    arg[File]("<file>...") unbounded() optional() action { (file, p) =>
+      p.copy(files = p.files :+ file)
+    } validate { file =>
+      val dir = file.getParentFile
+      if (!file.isFile || !file.canRead)
+        failure(s"Cannot read file $file")
+      else if (!dir.canWrite)
+        failure(s"Cannot write to $dir")
+      else
+        success
+    } text "video (movie/series) file(s) to search subtitle(s) for"
+
+    help("help") text "Prints this usage text"
 
     /*
     opt[File]('o', "out") required() valueName("<file>") action { (x, c) =>
@@ -74,23 +91,72 @@ object Main {
 
   def main(args: Array[String]) {
     val params = parser.parse(args, Params()) match {
-      case Some(p) => p
-
-      case None =>
-        //System.err.println(s"Invalid ")
-        sys.exit(1)
+      case Some(params) => params
+      case None         => sys.exit(1)
     }
 
     implicit val settings: Settings = {
       import net.ceedubs.ficus.Ficus._
       import net.ceedubs.ficus.readers.ArbitraryTypeReader._
       val config = ConfigFactory.load()
-      val watchDirs = config.as[List[String]]("watchDirs") map (new File(_))
+      val watchDirs = config.getAs[List[String]]("watchDirs") match {
+        case Some(dirs) => dirs map (new File(_))
+        case None       => Nil
+      }
       val openSubtitles = config.as[OpenSubtitlesConf]("credentials.openSubtitles")
       val languages = config.getAs[List[String]]("languages").getOrElse(Nil)
       Settings(watchDirs, languages, openSubtitles)
     }
 
+    params match {
+      case Params(files, interactive) if files.nonEmpty =>
+        downloadSubtitles(files, interactive)
+    }
+
+    dispatch.Http.shutdown()
+  }
+
+
+  case class DownloadResult(file: File, success: Boolean, message: String)
+  def downloadSubtitles(files: Seq[File], interactive: Boolean)(implicit s: Settings) = {
+    val results = files.foldLeft(List.empty[DownloadResult]) { (acc, file) =>
+      if (!interactive) {
+        val future: Future[Option[(Subtitle, SubtitleData)]] = OpenSubtitlesAPI.searchSubtitle(file).flatMap {
+          case Some(subtitle) =>
+            OpenSubtitlesAPI.downloadSubtitles(subtitle).
+              map(datas => Some(datas.head))
+          case None =>
+            Future.successful(None)
+        }
+        Try(Await.result(future, 1.minute)) match {
+          case Success(maybeData) =>
+            maybeData match {
+              case Some((subtitle, data)) =>
+                val basename = FilenameUtils.getBaseName(file.getName)
+                val targetFile = new File(file.getParentFile, s"$basename.${subtitle.formatSafe}")
+                if (targetFile != file) {
+                  val fw = new FileWriter(targetFile)
+                  fw.write(data.content)
+                  fw.close
+                  DownloadResult(file, true, "") :: acc
+                } else {
+                  DownloadResult(file, false, "Cannot download to $targetFile") :: acc
+                }
+              case None =>
+                DownloadResult(file, false, "No suitable subtitle found") :: acc
+            }
+          case Failure(err) =>
+            DownloadResult(file, false, err.getMessage) :: acc
+        }
+
+      } else {
+        ???
+      }
+    }
+    println(results)
+  }
+
+  def testStuff()(implicit settings: Settings) = {
     val videoFiles = settings.watchDirs.map(FileUtils.findFiles(_, filter = isVideoFile)).flatten.distinct
     val videoFilesWithoutSubtitles = videoFiles.filter(existingSubtitles(_).isEmpty)
     videoFilesWithoutSubtitles.zipWithIndex.foreach {
@@ -115,16 +181,14 @@ object Main {
       }
       */
 
-      val res = Await.result(OpenSubtitlesAPI.downloadSubtitles("1954499037", "1954510340"), 20.seconds)
-      println(new String(res(0).contentBytes))
+      val res = Await.result(OpenSubtitlesAPI.downloadSubtitleIds("1954499037", "1954510340"), 20.seconds)
+      println(res(0).content)
       println(res)
 
     } finally {
-      dispatch.Http.shutdown()
+
     }
   }
-
-
 
 
 }

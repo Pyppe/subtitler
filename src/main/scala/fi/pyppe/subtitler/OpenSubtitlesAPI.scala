@@ -20,11 +20,12 @@ case class Subtitle(matchedBy: MatchedBy, idSubMovieFile: String, hash: String, 
                     idSubtitleFile: String, subFileName: String, idSubtitle: String, language: String,
                     format: String, cdCount: Int, downloadCount: Int, rating: Double, badCount: Int, idMovie: String,
                     imdbId: String, movieName: String, movieNameEng: String, movieYear: Int) {
-  def downloadId = idSubtitleFile
+  def downloadId: String = idSubtitleFile
+  def formatSafe: String = Option(format.replace(".", "")).filter(_.nonEmpty).getOrElse("sub")
 }
-case class DownloadedSubtitle(id: String, encodedData: String) {
-  lazy val contentBytes: Array[Byte] = OpenSubtitlesDecoder.decodeAndDecompress(encodedData)
-  override def toString() = s"DownloadedSubtitle($id, length = ${encodedData.length})"
+case class SubtitleData(id: String, encodedData: String) {
+  lazy val content: String = new String(OpenSubtitlesDecoder.decodeAndDecompress(encodedData), "utf-8")
+  override def toString() = s"SubtitleData($id, encodedLength = ${encodedData.length})"
 }
 
 object OpenSubtitlesAPI extends StrictLogging {
@@ -165,8 +166,20 @@ object OpenSubtitlesAPI extends StrictLogging {
     }
   }
 
-  def downloadSubtitles(ids: String*)(implicit s: Settings): Future[List[DownloadedSubtitle]] = withValidToken { token =>
-    logger.debug(s"Downloading IDs: ${ids.mkString(" ")}")
+  def downloadSubtitles(subtitles: Subtitle*)
+                       (implicit s: Settings): Future[List[(Subtitle, SubtitleData)]] = withValidToken { token =>
+    logger.debug(s"Downloading subtitles: ${subtitles.map(_.subFileName).mkString(" ")}")
+    downloadSubtitleIds(subtitles.map(_.downloadId): _*).map { datas =>
+      for {
+        data <- datas
+        subtitle <- subtitles.find(_.downloadId == data.id)
+      } yield {
+        subtitle -> data
+      }
+    }
+  }
+
+  def downloadSubtitleIds(ids: String*)(implicit s: Settings): Future[List[SubtitleData]] = withValidToken { token =>
     val idValues = ids.map { id =>
       <value><string>{id}</string></value>
     }
@@ -186,13 +199,12 @@ object OpenSubtitlesAPI extends StrictLogging {
           </param>
         </params>
       </methodCall>
-
     postXML(EndPoint, req).map { xml =>
       val values = (xml \\ "array" \\ "member").map { member =>
         (member \ "value").text.trim
       }
       values.grouped(2).collect {
-        case Seq(a, b) => DownloadedSubtitle(a, b)
+        case Seq(a, b) => SubtitleData(a, b)
       }.toList
     }
   }
