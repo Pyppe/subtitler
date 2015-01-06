@@ -4,7 +4,6 @@ import java.io._
 import java.util.zip.GZIPInputStream
 
 import com.ning.http.util.Base64
-import com.typesafe.scalalogging.StrictLogging
 import org.joda.time.DateTime
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
@@ -28,7 +27,7 @@ case class SubtitleData(id: String, encodedData: String) {
   override def toString() = s"SubtitleData($id, encodedLength = ${encodedData.length})"
 }
 
-object OpenSubtitlesAPI extends StrictLogging {
+object OpenSubtitlesAPI extends Logging {
   import HttpUtils._
   import OpenSubtitlesHasher.computeHash
 

@@ -19,6 +19,7 @@ libraryDependencies ++= Seq(
   "commons-io"                 %  "commons-io"      % "2.4",
   "org.joda"                   % "joda-convert"     % "1.7",
   "joda-time"                  % "joda-time"        % "2.6",
+  "org.fusesource.jansi"       % "jansi"            % "1.11",
   "net.ceedubs"                %% "ficus"           % "1.1.2", // Scala-wrapper for Typesafe config
   "com.github.scopt"           %% "scopt"           % "3.3.0",
 
