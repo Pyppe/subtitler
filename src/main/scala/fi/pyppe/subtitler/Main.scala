@@ -43,17 +43,21 @@ object Main {
       p.copy(interactive = true)
     } text "Interactive-mode: Select downloaded subtitle from options by yourself"
 
-    arg[File]("<file>...") unbounded() optional() action { (file, p) =>
+    // files or dirs
+    arg[File]("<file or dir>...") unbounded() required() action { (file, p) =>
       p.copy(files = p.files :+ file)
     } validate { file =>
-      val dir = file.getParentFile
-      if (!file.isFile || !file.canRead)
-        failure(s"Cannot read file $file")
-      else if (!dir.canWrite)
-        failure(s"Cannot write to $dir")
-      else
-        success
-    } text "video (movie/series) file(s) to search subtitle(s) for"
+      if (!file.exists)          failure(s"$file does not exist")
+      else if (!file.canRead)    failure(s"Cannot read $file")
+      else if (file.isDirectory) {
+        if (!file.canWrite)      failure(s"Cannot write to directory $file")
+        else                     success
+      } else if (file.isFile) {
+        val parentDir = file.getParentFile
+        if (!parentDir.canWrite) failure(s"Cannot write to parent directory $parentDir")
+        else                     success
+      } else                     failure(s"Unknown $file")
+    } text "List of video files or directories (only files without an existing subtitle are processed) to search subtitle(s) for"
 
     help("help") text "Prints this usage text"
 
@@ -108,14 +112,38 @@ object Main {
       Settings(watchDirs, languages, openSubtitles)
     }
 
+    /*
     params match {
       case Params(files, interactive) if files.nonEmpty =>
         downloadSubtitles(files, interactive)
     }
+    */
+    //testAnsi()
+    println(consoleWidth)
+    println("sleep")
+    Thread.sleep(2000)
+    println(consoleWidth)
 
     dispatch.Http.shutdown()
   }
 
+  case class VideoDir(dir: File, videoCount: Int, videosWithoutSubtitles: List[File]) {
+    require(dir.isDirectory, s"$dir is not a directory")
+    def videoCountWithoutSubtitles = videosWithoutSubtitles.size
+  }
+  case class WorkRequest(dirBasedVideos: List[VideoDir], videos: List[File], interactive: Boolean) {
+    lazy val distinctVideos = (dirBasedVideos.flatMap(_.videosWithoutSubtitles) ++ videos).distinct
+  }
+  object WorkRequest {
+    def create(params: Params) = {
+      val (dirs, files) = params.files.toList.partition(_.isDirectory)
+      val videoDirs = dirs.map { dir =>
+        val videoFiles = FileUtils.findFiles(dir, true, isVideoFile)
+        VideoDir(dir, videoFiles.size, videoFiles.filter(existingSubtitles(_).isEmpty))
+      }
+      WorkRequest(videoDirs, files, params.interactive)
+    }
+  }
 
   case class DownloadResult(file: File, success: Boolean, message: String)
   def downloadSubtitles(files: Seq[File], interactive: Boolean)(implicit s: Settings) = {
@@ -156,6 +184,24 @@ object Main {
     println(results)
   }
 
+  def testAnsi() = {
+    import org.fusesource.jansi.AnsiConsole
+    import org.fusesource.jansi.Ansi._
+    import org.fusesource.jansi.Ansi.Color._
+
+    AnsiConsole.systemInstall()
+    val lineSize = s"We haz number x".size
+    (1 to 5).foreach { i =>
+      val c = if (i % 2 == 0) GREEN else Color.RED
+      print {
+        ansi.eraseLine(Erase.ALL).fg(c).
+          a(s"We haz number $i").reset
+      }
+      Thread.sleep(1000)
+      print("\b" * lineSize) // delete lines
+    }
+  }
+
   def testStuff()(implicit settings: Settings) = {
     val videoFiles = settings.watchDirs.map(FileUtils.findFiles(_, filter = isVideoFile)).flatten.distinct
     val videoFilesWithoutSubtitles = videoFiles.filter(existingSubtitles(_).isEmpty)
@@ -188,6 +234,11 @@ object Main {
     } finally {
 
     }
+  }
+
+  def consoleWidth(): Int = {
+    import scala.sys.process._
+    Try(Seq("bash", "-c", "tput cols 2> /dev/tty").!!.trim.toInt).getOrElse(100)
   }
 
 
