@@ -38,7 +38,7 @@ assemblyMergeStrategy in assembly := {
   case PathList("scala", "concurrent", xs @ _*)                     => MergeStrategy.first
   case PathList("scala", "reflect", "internal", xs @ _*)            => MergeStrategy.first
   case "logback.xml"                                                => MergeStrategy.first
-  case "application.conf"                                           => MergeStrategy.discard
+  case "subtitler.conf"                                             => MergeStrategy.discard
   case x =>
     val oldStrategy = (assemblyMergeStrategy in assembly).value
     oldStrategy(x)

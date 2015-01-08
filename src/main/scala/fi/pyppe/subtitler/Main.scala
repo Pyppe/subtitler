@@ -102,22 +102,21 @@ object Main {
     implicit val settings: Settings = {
       import net.ceedubs.ficus.Ficus._
       import net.ceedubs.ficus.readers.ArbitraryTypeReader._
-      val config = ConfigFactory.load()
-      val watchDirs = config.getAs[List[String]]("watchDirs") match {
-        case Some(dirs) => dirs map (new File(_))
-        case None       => Nil
+      val configName = "subtitler.conf"
+      try {
+        val configExists = Seq(configName, "/"+configName).exists(n => Option(this.getClass.getResource(n)).isDefined)
+        require(configExists, s"Cannot find subtitler.conf")
+        val config = ConfigFactory.parseResources(configName)
+        val openSubtitles = config.as[OpenSubtitlesConf]("openSubtitles")
+        val languages = config.getAs[List[String]]("languages").getOrElse(Nil)
+        Settings(languages, openSubtitles)
+      } catch {
+        case t: Throwable =>
+          System.err.println(s"Error reading $configName: ${t.getMessage}")
+          sys.exit(1)
       }
-      val openSubtitles = config.as[OpenSubtitlesConf]("credentials.openSubtitles")
-      val languages = config.getAs[List[String]]("languages").getOrElse(Nil)
-      Settings(watchDirs, languages, openSubtitles)
     }
 
-    /*
-    params match {
-      case Params(files, interactive) if files.nonEmpty =>
-        downloadSubtitles(files, interactive)
-    }
-    */
     //testAnsi()
     println(consoleWidth)
     println("sleep")
@@ -203,13 +202,6 @@ object Main {
   }
 
   def testStuff()(implicit settings: Settings) = {
-    val videoFiles = settings.watchDirs.map(FileUtils.findFiles(_, filter = isVideoFile)).flatten.distinct
-    val videoFilesWithoutSubtitles = videoFiles.filter(existingSubtitles(_).isEmpty)
-    videoFilesWithoutSubtitles.zipWithIndex.foreach {
-      case (file, idx) => println(s"$idx: ${file.getName}")
-    }
-
-
     try {
       /*
       val results = OpenSubtitlesAPI.parseSearchResponse(xml.XML.loadFile(new File("/tmp/subtitles.xml")))
