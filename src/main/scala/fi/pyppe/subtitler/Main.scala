@@ -119,6 +119,7 @@ object Main {
 
     val work = WorkRequest.create(params)
     Console.println(summary(work))
+    downloadSubtitles(work.distinctVideos, params.interactive)
 
 
     //testAnsi()
@@ -171,9 +172,9 @@ object Main {
 
   case class DownloadResult(file: File, success: Boolean, message: String)
   def downloadSubtitles(files: Seq[File], interactive: Boolean)(implicit s: Settings) = {
-    val results = files.foldLeft(List.empty[DownloadResult]) { (acc, file) =>
+    val results = files.foldLeft(List.empty[DownloadResult]) { (acc, videoFile) =>
       if (!interactive) {
-        val future: Future[Option[(Subtitle, SubtitleData)]] = OpenSubtitlesAPI.searchSubtitle(file).flatMap {
+        val future: Future[Option[(Subtitle, SubtitleData)]] = OpenSubtitlesAPI.searchSubtitle(videoFile).flatMap {
           case Some(subtitle) =>
             OpenSubtitlesAPI.downloadSubtitles(subtitle).
               map(datas => Some(datas.head))
@@ -184,25 +185,53 @@ object Main {
           case Success(maybeData) =>
             maybeData match {
               case Some((subtitle, data)) =>
-                val basename = FilenameUtils.getBaseName(file.getName)
-                val targetFile = new File(file.getParentFile, s"$basename.${subtitle.formatSafe}")
-                if (targetFile != file) {
+                val basename = FilenameUtils.getBaseName(videoFile.getName)
+                val targetFile = new File(videoFile.getParentFile, s"$basename.${subtitle.formatSafe}")
+                if (targetFile != videoFile) {
                   val fw = new FileWriter(targetFile)
                   fw.write(data.content)
                   fw.close
-                  DownloadResult(file, true, "") :: acc
+                  DownloadResult(videoFile, true, "") :: acc
                 } else {
-                  DownloadResult(file, false, s"Cannot download to $targetFile") :: acc
+                  DownloadResult(videoFile, false, s"Cannot download to $targetFile") :: acc
                 }
               case None =>
-                DownloadResult(file, false, "No suitable subtitle found") :: acc
+                DownloadResult(videoFile, false, "No suitable subtitle found") :: acc
             }
           case Failure(err) =>
-            DownloadResult(file, false, err.getMessage) :: acc
+            DownloadResult(videoFile, false, err.getMessage) :: acc
         }
 
       } else {
-        ???
+        Try(Await.result(OpenSubtitlesAPI.searchSubtitles(videoFile), 1.minute)) match {
+          case Success(options) =>
+            val optionsText = options.zipWithIndex.map {
+              case ((subtitle, score), idx) =>
+                val prefix = s"${idx+1}. ${subtitle.subFileName}"
+                val suffix: String = {
+                  val dataLines = List(
+                    ("lang", Some(subtitle.language)),
+                    ("rating", Option(subtitle.rating).filter(_ > 0.0).map(_.toString)),
+                    ("negative votes", Option(subtitle.badCount).filter(_ > 0).map(_.toString)),
+                    ("score", Some(score.toString))
+                  )
+                  dataLines.collect {
+                    case (key, Some(value)) =>
+                      Some(s"$key = $value")
+                    case _ => None
+                  }.flatten.toList match {
+                    case Nil => ""
+                    case items => items.mkString(" [", ", ", "]")
+                  }
+                }
+                s"$prefix$suffix"
+            }.mkString("\n")
+            Console.println(optionsText)
+            DownloadResult(videoFile, true, "") :: acc
+
+          case Failure(err) =>
+            ???
+        }
       }
     }
     println(results)

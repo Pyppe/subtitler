@@ -20,7 +20,7 @@ case class Subtitle(matchedBy: MatchedBy, idSubMovieFile: String, hash: String, 
                     format: String, cdCount: Int, downloadCount: Int, rating: Double, badCount: Int, idMovie: String,
                     imdbId: String, movieName: String, movieNameEng: String, movieYear: Int) {
   def downloadId: String = idSubtitleFile
-  def formatSafe: String = Option(format.replace(".", "")).filter(_.nonEmpty).getOrElse("sub")
+  def formatSafe: String = Option(format.replace(".", "").toLowerCase).filter(_.nonEmpty).getOrElse("sub")
 }
 case class SubtitleData(id: String, encodedData: String) {
   lazy val content: String = new String(OpenSubtitlesDecoder.decodeAndDecompress(encodedData), "utf-8")
@@ -94,11 +94,13 @@ object OpenSubtitlesAPI extends Logging {
         }
     }
 
-    if (fields.nonEmpty) {
-      (subtitle(fields) :: acc).reverse
-    } else {
+    val results =
+      if (fields.nonEmpty)
+        (subtitle(fields) :: acc).reverse
+      else
       acc.reverse
-    }
+
+    results.groupBy(_.downloadId).values.map(_.head).toList
   }
 
 
@@ -144,22 +146,24 @@ object OpenSubtitlesAPI extends Logging {
     }
   }
 
-  def searchSubtitles(f: File)(implicit s: Settings): Future[List[Subtitle]] = withValidToken { _ =>
+  def searchSubtitles(f: File)(implicit s: Settings): Future[List[(Subtitle, Double)]] = withValidToken { _ =>
     logger.debug(s"Finding subtitles for ${f.getName}")
     Future.reduce(List(
       searchSubtitlesByTag(f.getName),
       searchSubtitlesByFileHash(f))
-    )(_ ++ _)
+    )(_ ++ _).map { cs =>
+      sortCandidates(f.getName, cs)
+    }
   }
 
   def searchSubtitle(f: File)(implicit s: Settings): Future[Option[Subtitle]] = {
     searchSubtitles(f).map { candidates =>
-      val uniqueCount = candidates.map(_.downloadId).toSet.size
-      findBestCandidate(f.getName, candidates).map { best =>
-        logger.debug(s"Found subtitle ${best.subFileName} for ${f.getName} out of $uniqueCount candidates")
+      val count = candidates.length
+      candidates.headOption.map(_._1).map { best =>
+        logger.debug(s"Found subtitle ${best.subFileName} for ${f.getName} out of $count candidates")
         best
       }.orElse {
-        logger.debug(s"Could not find subtitle for ${f.getName} (out of $uniqueCount candidates)")
+        logger.debug(s"Could not find subtitle for ${f.getName} (out of $count candidates)")
         None
       }
     }
@@ -227,29 +231,27 @@ object OpenSubtitlesAPI extends Logging {
       map(parseSearchResponse)
   }
 
-  def findBestCandidate(targetName: String, options: List[Subtitle])(implicit s: Settings): Option[Subtitle] = {
+  private def sortCandidates(targetName: String, options: List[Subtitle])(implicit s: Settings): List[(Subtitle, Double)] = {
 
-    val languagePoints: Map[String, Int] = s.languages.zipWithIndex.map {
+    val languagePoints: Map[String, Double] = s.languages.zipWithIndex.map {
       case (lang, idx) =>
-        lang -> (s.languages.size - idx)
+        (lang, (s.languages.size - idx).toDouble / 2)
     }.toMap
 
-    val scoredOptions = options.groupBy(_.downloadId).flatMap {
+    options.groupBy(_.downloadId).flatMap {
       case (id, values) =>
         val count = values.size
         val subtitle = values.head
 
         Some(fileNameScore(targetName, subtitle.subFileName)).filter(_ > 1).map { nameScore =>
           val score =
-            languagePoints.getOrElse(subtitle.language, 0).toDouble +
+            languagePoints.getOrElse(subtitle.language, 0.0d) +
               nameScore +
-              count - (subtitle.badCount/2)
+              count - (subtitle.badCount/3)
 
           subtitle -> score
         }
-    }.toList.sortBy(_._2)
-
-    scoredOptions.lastOption.map(_._1)
+    }.toList.sortBy(_._2).reverse
   }
 
   private def fileNameScore(fileName1: String, fileName2: String): Int = {
@@ -260,6 +262,11 @@ object OpenSubtitlesAPI extends Logging {
         dropRight(1).
         toList
 
+    // TODO: LCS is not enough. For example, if looking subs for
+    //    Some.Interesting.Documentary.S01E10.HDTV.x264-DIIPADAAPA.mp4
+    // Results:
+    // 1. Some.Other.Documentary.S01E10.HDTV.x264-DIIPADAAPA.mp4
+    // 2. Some.Interesting.Documentary.S01E10.FOOBAR.mp4
     LCS(terms(fileName1), terms(fileName2)).length
   }
 
