@@ -112,26 +112,32 @@ object Main {
         Settings(languages, openSubtitles)
       } catch {
         case t: Throwable =>
-          System.err.println(s"Error reading $configName: ${t.getMessage}")
+          Console.err.println(s"Error reading $configName: ${t.getMessage}")
           sys.exit(1)
       }
     }
 
+    val work = WorkRequest.create(params)
+    Console.println(summary(work))
+
+
     //testAnsi()
+    /*
     println(consoleWidth)
     println("sleep")
     Thread.sleep(2000)
     println(consoleWidth)
+    */
 
     dispatch.Http.shutdown()
   }
 
-  case class VideoDir(dir: File, videoCount: Int, videosWithoutSubtitles: List[File]) {
+  case class VideoDir(dir: File, videoCount: Int, videosWithoutSub: List[File]) {
     require(dir.isDirectory, s"$dir is not a directory")
-    def videoCountWithoutSubtitles = videosWithoutSubtitles.size
+    def videoCountWithoutSubs = videosWithoutSub.size
   }
   case class WorkRequest(dirBasedVideos: List[VideoDir], videos: List[File], interactive: Boolean) {
-    lazy val distinctVideos = (dirBasedVideos.flatMap(_.videosWithoutSubtitles) ++ videos).distinct
+    lazy val distinctVideos = (dirBasedVideos.flatMap(_.videosWithoutSub) ++ videos).distinct
   }
   object WorkRequest {
     def create(params: Params) = {
@@ -142,6 +148,25 @@ object Main {
       }
       WorkRequest(videoDirs, files, params.interactive)
     }
+  }
+
+  def summary(work: WorkRequest) = {
+    val sb = StringBuilder.newBuilder
+    def line(l: String) = sb.append(l + "\n")
+
+    val (count, subtitlesText) = {
+      val totalCount = work.dirBasedVideos.map(_.videoCountWithoutSubs).sum + work.videos.size
+      totalCount -> (if(totalCount == 1) "subtitle" else "subtitles")
+    }
+
+    line(s"Trying to find $count $subtitlesText:")
+    work.dirBasedVideos.sortBy(_.dir.toString).foreach { vd =>
+      line(s" - ${vd.dir} [total videos = ${vd.videoCount}, videos without subs = ${vd.videoCountWithoutSubs}]")
+    }
+    work.videos.sortBy(_.toString).foreach { f =>
+      line(s" - $f")
+    }
+    sb.toString
   }
 
   case class DownloadResult(file: File, success: Boolean, message: String)
@@ -167,7 +192,7 @@ object Main {
                   fw.close
                   DownloadResult(file, true, "") :: acc
                 } else {
-                  DownloadResult(file, false, "Cannot download to $targetFile") :: acc
+                  DownloadResult(file, false, s"Cannot download to $targetFile") :: acc
                 }
               case None =>
                 DownloadResult(file, false, "No suitable subtitle found") :: acc
