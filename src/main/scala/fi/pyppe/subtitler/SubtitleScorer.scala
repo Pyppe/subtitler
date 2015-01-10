@@ -15,10 +15,17 @@ object SubtitleScorer {
         val count = values.size
         val subtitle = values.head
 
+        val ratingScore = subtitle.rating match {
+          case n if n > 9.0             =>  1.0
+          case n if n != 0.0 & n < 7.0  => -1.0
+          case _                        =>  0.0
+        }
+
         Some(fileNameScore(targetName, subtitle.subFileName)).filter(_ > 1).map { nameScore =>
           val score =
             languageCodePoints.getOrElse(subtitle.languageCode, 0.0d) +
               nameScore +
+              ratingScore +
               count - (subtitle.badCount/3)
 
           subtitle -> score
