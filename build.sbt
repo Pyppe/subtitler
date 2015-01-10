@@ -24,7 +24,7 @@ libraryDependencies ++= Seq(
   "com.github.scopt"           %% "scopt"           % "3.3.0",
 
   // Test
-  "org.scalatest"              %% "scalatest"       % "2.2.3" % "test"
+  "org.specs2"                 %% "specs2-core"     % "2.4.15" % "test"
 )
 
 resolvers += "Typesafe Repository" at "http://repo.typesafe.com/typesafe/releases/"

@@ -108,7 +108,11 @@ object Main {
         require(configExists, s"Cannot find subtitler.conf")
         val config = ConfigFactory.parseResources(configName)
         val openSubtitles = config.as[OpenSubtitlesConf]("openSubtitles")
-        val languages = config.getAs[List[String]]("languages").getOrElse(Nil)
+        val languages = config.getAs[List[String]]("languages").getOrElse(Nil).map { lang =>
+          Languages.find(lang).getOrElse {
+            throw new IllegalArgumentException(s"$lang is not a valid language")
+          }
+        }
         Settings(languages, openSubtitles)
       } catch {
         case t: Throwable =>
@@ -210,7 +214,7 @@ object Main {
                 val prefix = s"${idx+1}. ${subtitle.subFileName}"
                 val suffix: String = {
                   val dataLines = List(
-                    ("lang", Some(subtitle.language)),
+                    ("lang", Some(subtitle.languageCode)),
                     ("rating", Option(subtitle.rating).filter(_ > 0.0).map(_.toString)),
                     ("negative votes", Option(subtitle.badCount).filter(_ > 0).map(_.toString)),
                     ("score", Some(score.toString))
