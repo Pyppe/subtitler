@@ -35,6 +35,15 @@ class SubtitleScorerSpec extends Specification {
       ))(EnFi).map(_._1.downloadId) === List("0","1","2")
     }
 
+    "take precedence of words into account" in {
+      val target = "The.Awesome.Documentary.S01E10.1080p.HDTV.x264-FOOBAR.mp4"
+      val options = List(
+        mockedSub("1", "The Awesome Documentary S01E10 720p DIIPA", "fi"),
+        mockedSub("2", "Foobar.Adventures.S01E10.1080p.HDTV.x264-FOOBAR", "en")
+      )
+      SubtitleScorer.scoreAndSortCandidates(target, options)(EnFi).map(_._1.downloadId) === List("1","2")
+    }.pendingUntilFixed
+
   }
 
   def mockedSub(id: String, name: String, langCode: String, rating: Double = 0.0d, badCount: Int = 0) =
