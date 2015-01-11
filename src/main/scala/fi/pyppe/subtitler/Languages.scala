@@ -6,7 +6,7 @@ object Languages {
 
   val Available: Set[Language] = {
     io.Source.fromInputStream(getClass.getResourceAsStream("/languages.tsv"), "utf-8").
-      getLines.map(_.split('\t')).collect {
+      getLines.filterNot(_.startsWith("#")).map(_.split('\t')).collect {
         case Array(id, code, name, uploadEnabled, webEnabled) if uploadEnabled != "0" || webEnabled != "0" =>
           Language(id, code, name)
       }.toSet

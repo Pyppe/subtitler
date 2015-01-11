@@ -14,7 +14,10 @@ object Main {
   import scala.concurrent.Await
   import scala.concurrent.ExecutionContext.Implicits.global
 
-  case class Params(files: Seq[File] = Nil, interactive: Boolean = false)
+  import org.fusesource.jansi.Ansi._
+  import org.fusesource.jansi.Ansi.Color._
+
+  case class Params(showSupportedLanguages: Boolean = false, files: Seq[File] = Nil, interactive: Boolean = false)
   object Params {
     val ImdbId = """.*(tt[0-9]+).*""".r
   }
@@ -43,8 +46,13 @@ object Main {
       p.copy(interactive = true)
     } text "Interactive-mode: Select downloaded subtitle from options by yourself"
 
+    // --supported-langs
+    opt[Unit]('l', "supported-langs") action { (_, p) =>
+      p.copy(showSupportedLanguages = true)
+    } text "Show list of supported languages"
+
     // files or dirs
-    arg[File]("<file or dir>...") unbounded() required() action { (file, p) =>
+    arg[File]("<file or dir>...") unbounded() optional() action { (file, p) =>
       p.copy(files = p.files :+ file)
     } validate { file =>
       if (!file.exists)          failure(s"$file does not exist")
@@ -94,6 +102,8 @@ object Main {
 
 
   def main(args: Array[String]) {
+    org.fusesource.jansi.AnsiConsole.systemInstall()
+
     val params = parser.parse(args, Params()) match {
       case Some(params) => params
       case None         => sys.exit(1)
@@ -121,18 +131,36 @@ object Main {
       }
     }
 
-    val work = WorkRequest.create(params)
-    Console.println(summary(work))
-    downloadSubtitles(work.distinctVideos, params.interactive)
+    if (params.showSupportedLanguages) {
+      Console.println(ansi.fg(GREEN).a("Supported languages:").reset)
+      val sortedLanguages = Languages.Available.toList.sortBy(_.name)
+      def languageTokenLength(l: Language) = l.name.size + l.code.size + 3
+      val MaxLanguageWidth = sortedLanguages.map(l => languageTokenLength(l) + 1).max
+      def ansiName(l: Language) = ansi.a(s"${l.name} (${ansi.fg(CYAN).a(l.code).reset})")
+      consoleWidth.toOption match {
+        case Some(terminalWidth) if terminalWidth > 90 =>
+          sortedLanguages.zipWithIndex.foldLeft(0) { case (cursorWidth, (lang, idx)) =>
+            val padding = " "*(MaxLanguageWidth - languageTokenLength(lang))
+            if (MaxLanguageWidth + cursorWidth > terminalWidth) {
+              Console.print("\n")
+              Console.print(ansiName(lang).a(padding))
+              MaxLanguageWidth
+            } else {
+              Console.print(ansiName(lang).a(padding))
+              cursorWidth + MaxLanguageWidth
+            }
+          }
+          Console.print("\n")
 
+        case _ =>
+          Console.println(sortedLanguages.map(ansiName).mkString(", "))
+      }
+    } else {
+      val work = WorkRequest.create(params)
+      Console.println(summary(work))
+      downloadSubtitles(work.distinctVideos, params.interactive)
+    }
 
-    //testAnsi()
-    /*
-    println(consoleWidth)
-    println("sleep")
-    Thread.sleep(2000)
-    println(consoleWidth)
-    */
 
     dispatch.Http.shutdown()
   }
@@ -241,23 +269,6 @@ object Main {
     println(results)
   }
 
-  def testAnsi() = {
-    import org.fusesource.jansi.AnsiConsole
-    import org.fusesource.jansi.Ansi._
-    import org.fusesource.jansi.Ansi.Color._
-
-    AnsiConsole.systemInstall()
-    val lineSize = s"We haz number x".size
-    (1 to 5).foreach { i =>
-      val c = if (i % 2 == 0) GREEN else Color.RED
-      print {
-        ansi.eraseLine(Erase.ALL).fg(c).
-          a(s"We haz number $i").reset
-      }
-      Thread.sleep(1000)
-      print("\b" * lineSize) // delete lines
-    }
-  }
 
   def testStuff()(implicit settings: Settings) = {
     try {
@@ -286,9 +297,9 @@ object Main {
     }
   }
 
-  def consoleWidth(): Int = {
+  def consoleWidth(): Try[Int] = {
     import scala.sys.process._
-    Try(Seq("bash", "-c", "tput cols 2> /dev/tty").!!.trim.toInt).getOrElse(100)
+    Try(Seq("bash", "-c", "tput cols 2> /dev/tty").!!.trim.toInt)
   }
 
 

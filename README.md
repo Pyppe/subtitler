@@ -3,9 +3,9 @@ subtitler
 
 [![Build Status](https://travis-ci.org/Pyppe/subtitler.svg)](https://travis-ci.org/Pyppe/subtitler)
 
-Example of `application.conf`:
+Example of `subtitler.conf`:
 ```
-languages = ["eng", "fin"]
+languages = ["en", "fi"]
 openSubtitles {
   login = "my-login-to-opensubtitles.org"
   password = "my-pass"

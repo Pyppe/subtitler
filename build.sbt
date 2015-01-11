@@ -16,12 +16,12 @@ libraryDependencies ++= Seq(
   "net.databinder.dispatch"    %% "dispatch-core"   % "0.11.2",
 
   // Misc
-  "commons-io"                 %  "commons-io"      % "2.4",
+  "commons-io"                 % "commons-io"      % "2.4",
   "org.joda"                   % "joda-convert"     % "1.7",
   "joda-time"                  % "joda-time"        % "2.6",
-  "org.fusesource.jansi"       % "jansi"            % "1.11",
+  "org.fusesource.jansi"       % "jansi"            % "1.11",  // Colors
   "net.ceedubs"                %% "ficus"           % "1.1.2", // Scala-wrapper for Typesafe config
-  "com.github.scopt"           %% "scopt"           % "3.3.0",
+  "com.github.scopt"           %% "scopt"           % "3.3.0", // Command-line args parser
 
   // Test
   "org.specs2"                 %% "specs2-core"     % "2.4.15" % "test"
@@ -40,6 +40,5 @@ assemblyMergeStrategy in assembly := {
   case "logback.xml"                                                => MergeStrategy.first
   case "subtitler.conf"                                             => MergeStrategy.discard
   case x =>
-    val oldStrategy = (assemblyMergeStrategy in assembly).value
-    oldStrategy(x)
+    (assemblyMergeStrategy in assembly).value(x) // Use the old strategy as default
 }
