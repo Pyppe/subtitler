@@ -227,7 +227,7 @@ object OpenSubtitlesAPI extends Logging {
 
   private def search(values: (String, Any)*)
                     (implicit s: Settings): Future[List[Subtitle]] = withValidToken { token =>
-    val valuesWithLanguage = values :+ ("sublanguageid", s.languages.mkString(","))
+    val valuesWithLanguage = values :+ ("sublanguageid", s.languages.map(_.id).mkString(","))
     postXML(EndPoint, searchSubtitlesQuery(token, valuesWithLanguage: _*)).
       map(parseSearchResponse)
   }

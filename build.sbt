@@ -16,7 +16,8 @@ libraryDependencies ++= Seq(
   "net.databinder.dispatch"    %% "dispatch-core"   % "0.11.2",
 
   // Misc
-  "commons-io"                 % "commons-io"      % "2.4",
+  "commons-io"                 % "commons-io"       % "2.4",
+  "org.apache.commons"         % "commons-lang3"    % "3.3.2",
   "org.joda"                   % "joda-convert"     % "1.7",
   "joda-time"                  % "joda-time"        % "2.6",
   "org.fusesource.jansi"       % "jansi"            % "1.11",  // Colors

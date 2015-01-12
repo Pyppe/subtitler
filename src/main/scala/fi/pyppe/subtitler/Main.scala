@@ -3,6 +3,7 @@ package fi.pyppe.subtitler
 import com.typesafe.config.ConfigFactory
 import java.io.{FileWriter, File}
 import org.apache.commons.io.{IOUtils, FilenameUtils}
+import org.apache.commons.lang3.StringUtils
 import scala.annotation.tailrec
 import scala.concurrent.Future
 import scala.util.{Failure, Success, Try}
@@ -202,7 +203,13 @@ object Main {
     sb.toString
   }
 
-  case class DownloadResult(file: File, success: Boolean, message: String)
+  case class DownloadResult(file: File, subFile: Option[File], originalSubName: Option[String], errorMessage: Option[String])
+  object DownloadResult {
+    def success(file: File, subFile: File, originalSubName: String) =
+      DownloadResult(file, Some(subFile), Some(originalSubName), None)
+    def error(file: File, errorMessage: String) =
+      DownloadResult(file, None, None, Some(errorMessage))
+  }
   def downloadSubtitles(files: Seq[File], interactive: Boolean)(implicit s: Settings) = {
     val results = files.foldLeft(List.empty[DownloadResult]) { (acc, videoFile) =>
       if (!interactive) {
@@ -223,29 +230,30 @@ object Main {
                   val fw = new FileWriter(targetFile)
                   fw.write(data.content)
                   fw.close
-                  DownloadResult(videoFile, true, "") :: acc
+                  DownloadResult.success(videoFile, targetFile, subtitle.subFileName) :: acc
                 } else {
-                  DownloadResult(videoFile, false, s"Cannot download to $targetFile") :: acc
+                  DownloadResult.error(videoFile, s"Cannot download to $targetFile") :: acc
                 }
               case None =>
-                DownloadResult(videoFile, false, "No suitable subtitle found") :: acc
+                DownloadResult.error(videoFile, "No suitable subtitle found") :: acc
             }
           case Failure(err) =>
-            DownloadResult(videoFile, false, err.getMessage) :: acc
+            DownloadResult.error(videoFile, err.getMessage) :: acc
         }
 
       } else {
         Try(Await.result(OpenSubtitlesAPI.searchSubtitles(videoFile), 1.minute)) match {
           case Success(options) =>
+            val padding = (options.size + 1).toString.length
             val optionsText = options.zipWithIndex.map {
               case ((subtitle, score), idx) =>
-                val prefix = s"${idx+1}. ${subtitle.subFileName}"
+                val prefix = s"${ansi.bold.fg(BLUE).a(StringUtils.leftPad(s"${idx+1})", padding)).reset} ${ansi.fgBright(CYAN).a(subtitle.subFileName).reset}"
                 val suffix: String = {
                   val dataLines = List(
+                    ("score", Some(score.toString)),
                     ("lang", Some(subtitle.languageCode)),
                     ("rating", Option(subtitle.rating).filter(_ > 0.0).map(_.toString)),
-                    ("negative votes", Option(subtitle.badCount).filter(_ > 0).map(_.toString)),
-                    ("score", Some(score.toString))
+                    ("negative votes", Option(subtitle.badCount).filter(_ > 0).map(_.toString))
                   )
                   dataLines.collect {
                     case (key, Some(value)) =>
@@ -256,10 +264,32 @@ object Main {
                     case items => items.mkString(" [", ", ", "]")
                   }
                 }
-                s"$prefix$suffix"
+                s"  $prefix$suffix"
             }.mkString("\n")
-            Console.println(optionsText)
-            DownloadResult(videoFile, true, "") :: acc
+
+            if (options.nonEmpty) {
+              Console.println(s"Options for ${ansi.bold.a(videoFile.getName).reset}:")
+              Console.println(optionsText)
+              val numbers = {
+                val skip = ", 0 = skip"
+                if (options.size == 1)
+                  s"1$skip"
+                else
+                  s"1-${options.size}$skip"
+              }
+              Console.println(
+                ansi.a(s"Select subtitle for ").
+                  bold.a(videoFile.getName).reset.a(" to download")
+              )
+              Try(io.StdIn.readLine(ansi.bold.fg(BLUE).a(s"($numbers)").reset.a(": ").toString).toInt) match {
+                case Success(i) if i > 0 && i <= options.size =>
+                  throw new NotImplementedError(s"TODO: Download the ${options(i-1)._1.subFileName}")
+                case _ =>
+                  Console.println(s"Skipping ${ansi.bold.a(videoFile.getName).reset}")
+              }
+            }
+            //DownloadResult.success(videoFile, ) :: acc
+            ???
 
           case Failure(err) =>
             ???
