@@ -34,7 +34,7 @@ object SubtitleScorer {
 
   }
 
-  private def fileNameScore(fileName1: String, fileName2: String): Int = {
+  private def fileNameScore(target: String, candidate: String): Int = {
     def terms(str: String) =
       str.split("""[ .-]""").
         map(_.trim.toLowerCase).
@@ -42,12 +42,14 @@ object SubtitleScorer {
         dropRight(1).
         toList
 
-    // TODO: LCS is not enough. For example, if looking subs for
-    //    Some.Interesting.Documentary.S01E10.HDTV.x264-DIIPADAAPA.mp4
-    // Results:
-    // 1. Some.Other.Documentary.S01E10.HDTV.x264-DIIPADAAPA.mp4
-    // 2. Some.Interesting.Documentary.S01E10.FOOBAR.mp4
-    LCS(terms(fileName1), terms(fileName2)).length
+    def termsWithFactor(n: String) = {
+      val ts = terms(n).zipWithIndex
+      ts.map { case (t, idx) =>
+        t -> (ts.length - idx)
+      }
+    }
+
+    LCS(termsWithFactor(target), termsWithFactor(candidate)).map(_._2).sum
   }
 
   private def nGrams(words: List[String], n: Int): List[List[String]] = {
@@ -59,6 +61,18 @@ object SubtitleScorer {
   }
 
   // Longest-common-subsequence
+  def LCS(a: Seq[(String, Int)], b: Seq[(String, Int)]): Seq[(String, Int)] = {
+    if (a.isEmpty || b.isEmpty)
+      Nil
+    else if (a.head._1 == b.head._1)
+      a.head +: LCS(a.tail, b.tail)
+    else {
+      val case1 = LCS(a.tail, b)
+      val case2 = LCS(a, b.tail)
+      if (case1.length > case2.length) case1 else case2
+    }
+  }
+  /*
   def LCS[T](a: Seq[T], b: Seq[T]): Seq[T] = {
     if (a.isEmpty || b.isEmpty)
       Nil
@@ -70,5 +84,6 @@ object SubtitleScorer {
       if (case1.length > case2.length) case1 else case2
     }
   }
+  */
 
 }

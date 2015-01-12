@@ -42,7 +42,7 @@ class SubtitleScorerSpec extends Specification {
         mockedSub("2", "Foobar.Adventures.S01E10.1080p.HDTV.x264-FOOBAR", "en")
       )
       SubtitleScorer.scoreAndSortCandidates(target, options)(EnFi).map(_._1.downloadId) === List("1","2")
-    }.pendingUntilFixed
+    }
 
   }
 
