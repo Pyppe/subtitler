@@ -150,8 +150,9 @@ object Main extends Logging {
       }
     } else {
       val work = WorkRequest.create(params)
-      Console.println(summary(work))
-      downloadSubtitles(work.distinctVideos, params.interactive, params.simulate)
+      println(preSummary(work))
+      val results = downloadSubtitles(work.distinctVideos, params.interactive, params.simulate)
+      println(postSummary(results))
     }
 
 
@@ -176,7 +177,25 @@ object Main extends Logging {
     }
   }
 
-  def summary(work: WorkRequest) = {
+  def postSummary(results: List[DownloadResult]) = {
+    import ResultType._
+    val groups = results.groupBy(_.resultType)
+    val sb = StringBuilder.newBuilder
+    def line(s: Any) = sb append (s.toString + "\n")
+    ResultType.values.foreach { rt =>
+      groups.get(rt).foreach { results =>
+        val color = rt match {
+          case Ok      => GREEN
+          case Skipped => MAGENTA
+          case Error   => RED
+        }
+        line(ansi.bold.bg(color).a(s" ${results.size} × $rt ").reset)
+      }
+    }
+    sb.toString
+  }
+
+  def preSummary(work: WorkRequest) = {
     val sb = StringBuilder.newBuilder
     def line(l: String) = sb.append(l + "\n")
 
@@ -195,7 +214,21 @@ object Main extends Logging {
     sb.toString
   }
 
-  case class DownloadResult(file: File, subFile: Option[File], originalSubName: Option[String], errorMessage: Option[String])
+  object ResultType extends Enumeration {
+    type Result = Value
+    val Ok, Skipped, Error = Value
+  }
+  case class DownloadResult(file: File, subFile: Option[File], originalSubName: Option[String], errorMessage: Option[String]) {
+    import ResultType._
+    def resultType: Result = {
+      if (subFile.isDefined)
+        Ok
+      else if (errorMessage.isEmpty)
+        Skipped
+      else
+        Error
+    }
+  }
   object DownloadResult {
     def success(file: File, subFile: File, originalSubName: String) =
       DownloadResult(file, Some(subFile), Some(originalSubName), None)
@@ -204,7 +237,8 @@ object Main extends Logging {
     def skipped(file: File) =
       DownloadResult(file, None, None, None)
   }
-  def downloadSubtitles(files: Seq[File], interactive: Boolean, simulate: Boolean)(implicit s: Settings) = {
+  def downloadSubtitles(files: Seq[File], interactive: Boolean, simulate: Boolean)
+                       (implicit s: Settings): List[DownloadResult] = {
 
     def downloadAndSaveSubtitle(videoFile: File, subtitleFuture: Future[Option[Subtitle]]): DownloadResult = {
       val future: Future[Option[(Subtitle, SubtitleData)]] =
@@ -237,7 +271,7 @@ object Main extends Logging {
       }
     }
 
-    val results = files.foldLeft(List.empty[DownloadResult]) { (acc, videoFile) =>
+    files.foldLeft(List.empty[DownloadResult]) { (acc, videoFile) =>
       if (!interactive) {
         downloadAndSaveSubtitle(videoFile, OpenSubtitlesAPI.searchSubtitle(videoFile)) :: acc
       } else {
@@ -296,7 +330,6 @@ object Main extends Logging {
         }
       }
     }
-    println(results)
   }
 
 
