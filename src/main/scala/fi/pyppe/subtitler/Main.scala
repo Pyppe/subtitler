@@ -19,7 +19,8 @@ object Main extends Logging {
 
   val NoSubitleFoundMessage = "No suitable subtitle found"
 
-  case class Params(showSupportedLanguages: Boolean = false, files: Seq[File] = Nil, interactive: Boolean = false)
+  case class Params(showSupportedLanguages: Boolean = false, files: Seq[File] = Nil,
+                    interactive: Boolean = false, simulate: Boolean = false)
   object Params {
     val ImdbId = """.*(tt[0-9]+).*""".r
   }
@@ -32,6 +33,11 @@ object Main extends Logging {
     opt[Unit]('i', "interactive") action { (_, p) =>
       p.copy(interactive = true)
     } text "Interactive-mode: Select downloaded subtitle from options by yourself"
+
+    // --simulate
+    opt[Unit]('s', "simulate") action { (_, p) =>
+      p.copy(simulate = true)
+    } text "Simulate-mode: Perform a simulation of events without actually writing subs to disk"
 
     // --supported-langs
     opt[Unit]('l', "supported-langs") action { (_, p) =>
@@ -145,7 +151,7 @@ object Main extends Logging {
     } else {
       val work = WorkRequest.create(params)
       Console.println(summary(work))
-      downloadSubtitles(work.distinctVideos, params.interactive)
+      downloadSubtitles(work.distinctVideos, params.interactive, params.simulate)
     }
 
 
@@ -198,7 +204,7 @@ object Main extends Logging {
     def skipped(file: File) =
       DownloadResult(file, None, None, None)
   }
-  def downloadSubtitles(files: Seq[File], interactive: Boolean)(implicit s: Settings) = {
+  def downloadSubtitles(files: Seq[File], interactive: Boolean, simulate: Boolean)(implicit s: Settings) = {
 
     def downloadAndSaveSubtitle(videoFile: File, subtitleFuture: Future[Option[Subtitle]]): DownloadResult = {
       val future: Future[Option[(Subtitle, SubtitleData)]] =
@@ -214,9 +220,11 @@ object Main extends Logging {
               val basename = FilenameUtils.getBaseName(videoFile.getName)
               val targetFile = new File(videoFile.getParentFile, s"$basename.${subtitle.formatSafe}")
               if (targetFile != videoFile) {
-                val fw = new FileWriter(targetFile)
-                fw.write(data.content)
-                fw.close
+                if (!simulate) {
+                  val fw = new FileWriter(targetFile)
+                  fw.write(data.content)
+                  fw.close
+                }
                 DownloadResult.success(videoFile, targetFile, subtitle.subFileName)
               } else {
                 DownloadResult.error(videoFile, s"Cannot download to $targetFile")
