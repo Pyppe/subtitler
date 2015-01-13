@@ -8,8 +8,7 @@ import scala.annotation.tailrec
 import scala.concurrent.Future
 import scala.util.{Failure, Success, Try}
 
-object Main {
-  //import WSConfig._
+object Main extends Logging {
   import FileUtils._
   import scala.concurrent.duration._
   import scala.concurrent.Await
@@ -17,6 +16,8 @@ object Main {
 
   import org.fusesource.jansi.Ansi._
   import org.fusesource.jansi.Ansi.Color._
+
+  val NoSubitleFoundMessage = "No suitable subtitle found"
 
   case class Params(showSupportedLanguages: Boolean = false, files: Seq[File] = Nil, interactive: Boolean = false)
   object Params {
@@ -26,21 +27,6 @@ object Main {
 
   val parser = new scopt.OptionParser[Params]("subtitler") {
     head("subtitler", "1.0")
-
-    /*
-    // --file <video-file>
-    opt[File]('f', "file") optional() valueName("<video-file>") action { (file, p) =>
-      p.copy(file = Some(file))
-    } text("Search subtitle for given <video-file>")
-
-    // --imdb <imdb-id>
-    opt[String]('i', "imdb") optional() valueName("<imdb-id>") action { (id, p) =>
-      p.copy(imdb = Some(id))
-    } validate { id =>
-      if (id.matches(Params.ImdbId.regex)) success
-      else failure(s"<imdb-id> must match ${Params.ImdbId.regex}")
-    } text("Search subtitle with given <imdb-id> (e.g. tt0133093)")
-    */
 
     // --interactive
     opt[Unit]('i', "interactive") action { (_, p) =>
@@ -209,38 +195,43 @@ object Main {
       DownloadResult(file, Some(subFile), Some(originalSubName), None)
     def error(file: File, errorMessage: String) =
       DownloadResult(file, None, None, Some(errorMessage))
+    def skipped(file: File) =
+      DownloadResult(file, None, None, None)
   }
   def downloadSubtitles(files: Seq[File], interactive: Boolean)(implicit s: Settings) = {
-    val results = files.foldLeft(List.empty[DownloadResult]) { (acc, videoFile) =>
-      if (!interactive) {
-        val future: Future[Option[(Subtitle, SubtitleData)]] = OpenSubtitlesAPI.searchSubtitle(videoFile).flatMap {
-          case Some(subtitle) =>
-            OpenSubtitlesAPI.downloadSubtitles(subtitle).
-              map(datas => Some(datas.head))
-          case None =>
-            Future.successful(None)
-        }
-        Try(Await.result(future, 1.minute)) match {
-          case Success(maybeData) =>
-            maybeData match {
-              case Some((subtitle, data)) =>
-                val basename = FilenameUtils.getBaseName(videoFile.getName)
-                val targetFile = new File(videoFile.getParentFile, s"$basename.${subtitle.formatSafe}")
-                if (targetFile != videoFile) {
-                  val fw = new FileWriter(targetFile)
-                  fw.write(data.content)
-                  fw.close
-                  DownloadResult.success(videoFile, targetFile, subtitle.subFileName) :: acc
-                } else {
-                  DownloadResult.error(videoFile, s"Cannot download to $targetFile") :: acc
-                }
-              case None =>
-                DownloadResult.error(videoFile, "No suitable subtitle found") :: acc
-            }
-          case Failure(err) =>
-            DownloadResult.error(videoFile, err.getMessage) :: acc
+
+    def downloadAndSaveSubtitle(videoFile: File, subtitleFuture: Future[Option[Subtitle]]): DownloadResult = {
+      val future: Future[Option[(Subtitle, SubtitleData)]] =
+        subtitleFuture.flatMap {
+          case Some(subtitle) => OpenSubtitlesAPI.downloadSubtitles(subtitle).map(ss => Some(ss.head))
+          case None           => Future.successful(None)
         }
 
+      Try(Await.result(future, 1.minute)) match {
+        case Success(maybeData) =>
+          maybeData match {
+            case Some((subtitle, data)) =>
+              val basename = FilenameUtils.getBaseName(videoFile.getName)
+              val targetFile = new File(videoFile.getParentFile, s"$basename.${subtitle.formatSafe}")
+              if (targetFile != videoFile) {
+                val fw = new FileWriter(targetFile)
+                fw.write(data.content)
+                fw.close
+                DownloadResult.success(videoFile, targetFile, subtitle.subFileName)
+              } else {
+                DownloadResult.error(videoFile, s"Cannot download to $targetFile")
+              }
+            case None =>
+              DownloadResult.error(videoFile, NoSubitleFoundMessage)
+          }
+        case Failure(err) =>
+          DownloadResult.error(videoFile, err.getMessage)
+      }
+    }
+
+    val results = files.foldLeft(List.empty[DownloadResult]) { (acc, videoFile) =>
+      if (!interactive) {
+        downloadAndSaveSubtitle(videoFile, OpenSubtitlesAPI.searchSubtitle(videoFile)) :: acc
       } else {
         Try(Await.result(OpenSubtitlesAPI.searchSubtitles(videoFile), 1.minute)) match {
           case Success(options) =>
@@ -267,9 +258,10 @@ object Main {
                 s"  $prefix$suffix"
             }.mkString("\n")
 
+            val boldVideoName = ansi.bold.a(videoFile.getName).reset
             if (options.nonEmpty) {
-              Console.println(s"Options for ${ansi.bold.a(videoFile.getName).reset}:")
-              Console.println(optionsText)
+              println(s"Options for $boldVideoName:")
+              println(optionsText)
               val numbers = {
                 val skip = ", 0 = skip"
                 if (options.size == 1)
@@ -277,55 +269,28 @@ object Main {
                 else
                   s"1-${options.size}$skip"
               }
-              Console.println(
-                ansi.a(s"Select subtitle for ").
-                  bold.a(videoFile.getName).reset.a(" to download")
-              )
+              println(s"Select subtitle for $boldVideoName to download")
               Try(io.StdIn.readLine(ansi.bold.fg(BLUE).a(s"($numbers)").reset.a(": ").toString).toInt) match {
                 case Success(i) if i > 0 && i <= options.size =>
-                  throw new NotImplementedError(s"TODO: Download the ${options(i-1)._1.subFileName}")
+                  downloadAndSaveSubtitle(videoFile, Future.successful(Some(options(i-1)._1))) :: acc
                 case _ =>
-                  Console.println(s"Skipping ${ansi.bold.a(videoFile.getName).reset}")
+                  println(s"Skipping ${ansi.bold.a(videoFile.getName).reset}")
+                  DownloadResult.skipped(videoFile) :: acc
               }
+            } else {
+              println(s"No subtitles found for $boldVideoName")
+              DownloadResult.error(videoFile, NoSubitleFoundMessage) :: acc
             }
-            //DownloadResult.success(videoFile, ) :: acc
-            ???
 
           case Failure(err) =>
-            ???
+            logger.error(s"Error finding subtitle options for $videoFile")
+            DownloadResult.error(videoFile, err.getMessage) :: acc
         }
       }
     }
     println(results)
   }
 
-
-  def testStuff()(implicit settings: Settings) = {
-    try {
-      /*
-      val results = OpenSubtitlesAPI.parseSearchResponse(xml.XML.loadFile(new File("/tmp/subtitles.xml")))
-      results.foreach(println)
-      */
-
-      /*
-      val file = videoFiles(1)
-      val result = Await.result(OpenSubtitlesAPI.searchSubtitle(file), 10.seconds)
-      println(result)
-      println(file)
-      result.map { subtitle =>
-        val res = Await.result(OpenSubtitlesAPI.downloadSubtitles(subtitle.downloadId), 20.seconds)
-        println(res)
-      }
-      */
-
-      val res = Await.result(OpenSubtitlesAPI.downloadSubtitleIds("1954499037", "1954510340"), 20.seconds)
-      println(res(0).content)
-      println(res)
-
-    } finally {
-
-    }
-  }
 
   def consoleWidth(): Try[Int] = {
     import scala.sys.process._
