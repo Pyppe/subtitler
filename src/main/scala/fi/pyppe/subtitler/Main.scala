@@ -33,7 +33,7 @@ object Main extends Logging {
     // --interactive
     opt[Unit]('i', "interactive") action { (_, p) =>
       p.copy(interactive = true)
-    } text "Interactive-mode: Select downloaded subtitle from options by yourself"
+    } text "Interactive-mode: Select yourself the subtitle to download from available options"
 
     // --simulate
     opt[Unit]('s', "simulate") action { (_, p) =>
@@ -156,7 +156,7 @@ object Main extends Logging {
       println(postSummary(results))
     }
 
-
+    HttpUtils.http.shutdown()
     dispatch.Http.shutdown()
   }
 
@@ -169,7 +169,7 @@ object Main extends Logging {
   }
   object WorkRequest {
     def create(params: Params) = {
-      val (dirs, files) = params.files.toList.partition(_.isDirectory)
+      val (dirs, files) = params.files.map(_.getCanonicalFile).toList.partition(_.isDirectory)
       val videoDirs = dirs.map { dir =>
         val videoFiles = FileUtils.findFiles(dir, true, isVideoFile)
         VideoDir(dir, videoFiles.size, videoFiles.filter(existingSubtitles(_).isEmpty))

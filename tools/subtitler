@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+declare -r prog_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+declare java_cmd="java"
+# if set, use JAVA_HOME over java found in path
+[[ -e "$JAVA_HOME/bin/java" ]] && java_cmd="$JAVA_HOME/bin/java"
+declare -r which_java=`which $java_cmd`
+declare -r jar_file="$prog_dir/subtitler.jar"
+
+if [[ ! -f $which_java ]]; then
+  echo "- Java not found from path. Exiting..."
+  exit 1
+fi
+
+if [[ ! -f $jar_file ]]; then
+  echo "- Cannot find $jar_file. Exiting..."
+  exit
+fi
+
+$java_cmd -cp "$prog_dir:$prog_dir/subtitler.jar" fi.pyppe.subtitler.Main "$@"
