@@ -183,27 +183,33 @@ object Main extends Logging {
     val groups = results.groupBy(_.resultType)
     val sb = StringBuilder.newBuilder
     def appendLine(s: Any) = sb append (s.toString + "\n")
+
+    def icon(c: Char, color: Color) = ansi.bold.fg(color).a(s"$c ").reset
+
     ResultType.values.foreach { rt =>
       groups.get(rt).foreach { results =>
         val (color, resultPrintLines: List[Ansi]) = rt match {
           case Ok =>
-            GREEN -> results.sortBy(_.subFile.get.getName).map {
+            val color = GREEN
+            color -> results.sortBy(_.subFile.get.getName).map {
               case DownloadResult(f, Some(subFile), Some(orgSubName), _) =>
                 val subFileName = subFile.getName
                 val suffix =
                   if (subFileName != orgSubName) s" (from $orgSubName)"
                   else ""
-                ansi.bold.a(subFileName).reset.a(suffix)
+                icon('✓', color).bold.a(subFileName).reset.a(suffix)
             }
 
           case Skipped =>
-            MAGENTA -> results.map(_.file).sortBy(_.getName).map { file =>
-              ansi.a(file.getName)
+            val color = YELLOW
+            color -> results.map(_.file).sortBy(_.getName).map { file =>
+              icon('-', color).a(file.getName)
             }
           case Error =>
-            RED -> results.sortBy(_.file.getName).map {
+            val color = RED
+            color -> results.sortBy(_.file.getName).map {
               case DownloadResult(f,_,_, Some(error)) =>
-                ansi.a(f.getName).a(" ").fg(RED).a(s"($error)").reset
+                icon('×', color).a(f.getName).a(" ").fg(color).a(s"($error)").reset
             }
         }
         appendLine(ansi.bold.bg(color).a(s" ${results.size} × $rt ").reset)
