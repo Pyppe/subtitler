@@ -4,6 +4,7 @@ import com.typesafe.config.ConfigFactory
 import java.io.{FileWriter, File}
 import org.apache.commons.io.{IOUtils, FilenameUtils}
 import org.apache.commons.lang3.StringUtils
+import org.fusesource.jansi.Ansi
 import scala.annotation.tailrec
 import scala.concurrent.Future
 import scala.util.{Failure, Success, Try}
@@ -181,15 +182,35 @@ object Main extends Logging {
     import ResultType._
     val groups = results.groupBy(_.resultType)
     val sb = StringBuilder.newBuilder
-    def line(s: Any) = sb append (s.toString + "\n")
+    def appendLine(s: Any) = sb append (s.toString + "\n")
     ResultType.values.foreach { rt =>
       groups.get(rt).foreach { results =>
-        val color = rt match {
-          case Ok      => GREEN
-          case Skipped => MAGENTA
-          case Error   => RED
+        val (color, resultPrintLines: List[Ansi]) = rt match {
+          case Ok =>
+            GREEN -> results.sortBy(_.subFile.get.getName).map {
+              case DownloadResult(f, Some(subFile), Some(orgSubName), _) =>
+                val subFileName = subFile.getName
+                val suffix =
+                  if (subFileName != orgSubName) s" (from $orgSubName)"
+                  else ""
+                ansi.bold.a(subFileName).reset.a(suffix)
+            }
+
+          case Skipped =>
+            MAGENTA -> results.map(_.file).sortBy(_.getName).map { file =>
+              ansi.a(file.getName)
+            }
+          case Error =>
+            RED -> results.sortBy(_.file.getName).map {
+              case DownloadResult(f,_,_, Some(error)) =>
+                ansi.a(f.getName).a(" ").fg(RED).a(s"($error)").reset
+            }
         }
-        line(ansi.bold.bg(color).a(s" ${results.size} × $rt ").reset)
+        appendLine(ansi.bold.bg(color).a(s" ${results.size} × $rt ").reset)
+        resultPrintLines foreach { l =>
+          appendLine("  " + l)
+        }
+        appendLine("")
       }
     }
     sb.toString
