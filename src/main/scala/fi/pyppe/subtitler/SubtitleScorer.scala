@@ -2,6 +2,17 @@ package fi.pyppe.subtitler
 
 object SubtitleScorer {
 
+  private val SeasonAndEpisode = """[ .-][sS](\d\d)[eE](\d\d)[ .-]""".r
+
+  def seasonAndEpisode(name: String): Option[(String, String)] =
+    SeasonAndEpisode.findAllMatchIn(name).map { m =>
+      m.group(1) -> m.group(2)
+    }.toList match {
+      case List(x) => Some(x)
+      case _       => None
+    }
+
+
   def scoreAndSortCandidates(targetName: String, options: List[Subtitle])
                             (implicit s: Settings): List[(Subtitle, Double)] = {
 
@@ -10,25 +21,32 @@ object SubtitleScorer {
         (lang.code, (s.languages.size - idx).toDouble / 2)
     }.toMap
 
+    val targetSeasonAndEpisode = seasonAndEpisode(targetName)
     options.groupBy(_.downloadId).flatMap {
       case (id, values) =>
         val count = values.size
         val subtitle = values.head
 
-        val ratingScore = subtitle.rating match {
-          case n if n > 9.0             =>  1.0
-          case n if n != 0.0 & n < 7.0  => -1.0
-          case _                        =>  0.0
-        }
+        (targetSeasonAndEpisode, seasonAndEpisode(subtitle.subFileName)) match {
+          case (a, b) if a != b =>
+            None
 
-        Some(fileNameScore(targetName, subtitle.subFileName)).filter(_ > 1).map { nameScore =>
-          val score =
-            languageCodePoints.getOrElse(subtitle.languageCode, 0.0d) +
-              nameScore +
-              ratingScore +
-              count - (subtitle.badCount/3)
+          case _ =>
+            val ratingScore = subtitle.rating match {
+              case n if n > 9.0             =>  1.0
+              case n if n != 0.0 & n < 7.0  => -1.0
+              case _                        =>  0.0
+            }
 
-          subtitle -> score
+            Some(fileNameScore(targetName, subtitle.subFileName)).filter(_ > 1).map { nameScore =>
+              val score =
+                languageCodePoints.getOrElse(subtitle.languageCode, 0.0d) +
+                  nameScore +
+                  ratingScore +
+                  count - (subtitle.badCount/3)
+
+              subtitle -> score
+            }
         }
     }.toList.sortBy(_._2).reverse
 

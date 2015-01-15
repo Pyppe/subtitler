@@ -307,7 +307,7 @@ object Main extends Logging {
             val padding = (options.size + 1).toString.length
             val optionsText = options.zipWithIndex.map {
               case ((subtitle, score), idx) =>
-                val prefix = s"${ansi.bold.fg(BLUE).a(StringUtils.leftPad(s"${idx+1})", padding)).reset} ${ansi.fgBright(CYAN).a(subtitle.subFileName).reset}"
+                val prefix = s"${ansi.bold.fg(BLUE).a(StringUtils.leftPad(s"${idx+1}", padding) + ")").reset} ${ansi.fgBright(CYAN).a(subtitle.subFileName).reset}"
                 val suffix: String = {
                   val dataLines = List(
                     ("score", Some(score.toString)),

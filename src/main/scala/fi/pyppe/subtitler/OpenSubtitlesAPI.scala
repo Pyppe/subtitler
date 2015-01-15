@@ -151,10 +151,13 @@ object OpenSubtitlesAPI extends Logging {
 
   def searchSubtitles(f: File)(implicit s: Settings): Future[List[(Subtitle, Double)]] = withValidToken { _ =>
     logger.debug(s"Finding subtitles for ${f.getName}")
-    Future.reduce(List(
-      searchSubtitlesByTag(f.getName),
-      searchSubtitlesByFileHash(f))
-    )(_ ++ _).map(SubtitleScorer.scoreAndSortCandidates(f.getName, _))
+
+    searchSubtitlesByTag(f.getName) zip searchSubtitlesByFileHash(f) map {
+      case (byTag, byHash) =>
+        val tagIds = byTag.map(_.downloadId).toSet
+        val subtitles = byTag ++ byHash.filter(s => tagIds(s.downloadId))
+        SubtitleScorer.scoreAndSortCandidates(f.getName, subtitles)
+    }
   }
 
   def searchSubtitle(f: File)(implicit s: Settings): Future[Option[Subtitle]] = {
