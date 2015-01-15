@@ -217,10 +217,10 @@ object Main extends Logging {
     }
     ResultType.values.foreach { rt =>
       groups.get(rt).foreach { results =>
-        val (color, resultPrintLines: List[Ansi]) = rt match {
+        val (bg, fg, resultPrintLines: List[Ansi]) = rt match {
           case Ok =>
             val color = GREEN
-            color -> results.sortBy(_.subFile.get.getName).map {
+            val lines = results.sortBy(_.subFile.get.getName).map {
               case DownloadResult(f, Some(subFile), Some(orgSubName), _) =>
                 val subFileName = subFile.getName
                 val suffix =
@@ -228,20 +228,26 @@ object Main extends Logging {
                   else ""
                 icon('✓', color).fg(color).a(subFileName).reset.a(suffix)
             }
+            (color, WHITE, lines)
 
           case Skipped =>
             val color = YELLOW
-            color -> results.map(_.file).sortBy(_.getName).map { file =>
+            val lines = results.map(_.file).sortBy(_.getName).map { file =>
               icon('-', color).fg(color).a(file.getName).reset
             }
+            (WHITE, BLACK, lines)
           case Error =>
             val color = RED
-            color -> results.sortBy(_.file.getName).map {
+            val lines = results.sortBy(_.file.getName).map {
               case DownloadResult(f,_,_, Some(error)) =>
                 icon('×', color).fg(color).a(f.getName).reset.a(s" ($error)").reset
             }
+            (color, WHITE, lines)
         }
-        appendLine(ansi.bold.bg(color).a(s" ${results.size} × $rt ").reset)
+        val rtPadding = {
+          ResultType.values.map(_.toString.size).max + 1
+        }
+        appendLine(ansi.bold.bg(bg).fg(fg).a(s" ${results.size} × ").a(StringUtils.rightPad(rt.toString, rtPadding)).reset)
         resultPrintLines foreach { l =>
           appendLine("  " + l)
         }
