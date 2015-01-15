@@ -15,6 +15,9 @@ libraryDependencies ++= Seq(
   // Http
   "net.databinder.dispatch"    %% "dispatch-core"   % "0.11.2",
 
+  // Json
+  "com.typesafe.play"          %% "play-json"       % "2.3.7",
+
   // Misc
   "commons-io"                 % "commons-io"       % "2.4",
   "org.apache.commons"         % "commons-lang3"    % "3.3.2",
