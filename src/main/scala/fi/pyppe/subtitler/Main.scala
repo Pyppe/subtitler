@@ -5,6 +5,8 @@ import java.io.{FileWriter, File}
 import org.apache.commons.io.{IOUtils, FilenameUtils}
 import org.apache.commons.lang3.StringUtils
 import org.fusesource.jansi.Ansi
+import org.joda.time.{PeriodType, Period}
+import org.joda.time.format.PeriodFormatterBuilder
 import scala.annotation.tailrec
 import scala.concurrent.Future
 import scala.util.{Failure, Success, Try}
@@ -17,8 +19,6 @@ object Main extends Logging {
 
   import org.fusesource.jansi.Ansi._
   import org.fusesource.jansi.Ansi.Color._
-
-  val NoSubitleFoundMessage = "No suitable subtitle found"
 
   case class Params(showSupportedLanguages: Boolean = false, files: Seq[File] = Nil,
                     interactive: Boolean = false, simulate: Boolean = false)
@@ -150,10 +150,11 @@ object Main extends Logging {
           Console.println(sortedLanguages.map(ansiName).mkString(", "))
       }
     } else {
+      val t = System.currentTimeMillis
       val work = WorkRequest.create(params)
       println(preSummary(work))
       val results = downloadSubtitles(work.distinctVideos, params.interactive, params.simulate)
-      println(postSummary(results))
+      println(postSummary(results, System.currentTimeMillis - t))
     }
 
     HttpUtils.http.shutdown()
@@ -178,14 +179,42 @@ object Main extends Logging {
     }
   }
 
-  def postSummary(results: List[DownloadResult]) = {
+  def postSummary(results: List[DownloadResult], duration: Long) = {
     import ResultType._
-    val groups = results.groupBy(_.resultType)
     val sb = StringBuilder.newBuilder
+    val hmsFormatter =
+      new PeriodFormatterBuilder().
+        appendHours().appendSuffix(" h").
+        appendSeparator(" ").
+        appendMinutes().appendSuffix(" min").
+        appendSeparator(" ").
+        printZeroAlways().
+        appendSeconds().appendSuffix(" sec").
+        toFormatter
     def appendLine(s: Any) = sb append (s.toString + "\n")
-
     def icon(c: Char, color: Color) = ansi.bold.fg(color).a(s"$c ").reset
 
+    val groups = results.groupBy(_.resultType)
+    if (results.nonEmpty) {
+      val hms = hmsFormatter.print(new Period(0L, duration, PeriodType.time()))
+      val successRate = {
+        val successCount: Int = groups.get(Ok).map(_.size).getOrElse(0)
+        (successCount.toDouble / results.size * 100).formatted("%.1f") + " %"
+      }
+      val firstLineParts = List(
+        "  Finished subtitle-search for ",
+        results.size.toString,
+        " subtitles in ",
+        hms
+      )
+      val c = CYAN
+      val lineLength = firstLineParts.map(_.length).sum + 2
+      appendLine(ansi.fg(c).a("="*lineLength).reset)
+      appendLine(ansi.fg(c).a(firstLineParts(0)).bold.a(firstLineParts(1)).boldOff.a(firstLineParts(2)).bold.a(firstLineParts(3)).reset)
+      appendLine(ansi.fg(c).a("  Success rate ").bold.a(successRate).reset)
+      appendLine(ansi.fg(c).a("  See results below").reset)
+      appendLine(ansi.fg(c).a("="*lineLength).reset)
+    }
     ResultType.values.foreach { rt =>
       groups.get(rt).foreach { results =>
         val (color, resultPrintLines: List[Ansi]) = rt match {
@@ -197,19 +226,19 @@ object Main extends Logging {
                 val suffix =
                   if (subFileName != orgSubName) s" (from $orgSubName)"
                   else ""
-                icon('✓', color).bold.a(subFileName).reset.a(suffix)
+                icon('✓', color).fg(color).a(subFileName).reset.a(suffix)
             }
 
           case Skipped =>
             val color = YELLOW
             color -> results.map(_.file).sortBy(_.getName).map { file =>
-              icon('-', color).a(file.getName)
+              icon('-', color).fg(color).a(file.getName).reset
             }
           case Error =>
             val color = RED
             color -> results.sortBy(_.file.getName).map {
               case DownloadResult(f,_,_, Some(error)) =>
-                icon('×', color).a(f.getName).a(" ").fg(color).a(s"($error)").reset
+                icon('×', color).fg(color).a(f.getName).reset.a(s" ($error)").reset
             }
         }
         appendLine(ansi.bold.bg(color).a(s" ${results.size} × $rt ").reset)
@@ -291,7 +320,7 @@ object Main extends Logging {
                 DownloadResult.error(videoFile, s"Cannot download to $targetFile")
               }
             case None =>
-              DownloadResult.error(videoFile, NoSubitleFoundMessage)
+              DownloadResult.skipped(videoFile)
           }
         case Failure(err) =>
           DownloadResult.error(videoFile, err.getMessage)
@@ -348,7 +377,7 @@ object Main extends Logging {
               }
             } else {
               println(s"No subtitles found for $boldVideoName")
-              DownloadResult.error(videoFile, NoSubitleFoundMessage) :: acc
+              DownloadResult.skipped(videoFile) :: acc
             }
 
           case Failure(err) =>

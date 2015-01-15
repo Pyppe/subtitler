@@ -23,7 +23,7 @@ class MainSpec extends Specification {
         DownloadResult.skipped(f("Not.Found.Movie.2019.720p", "avi")),
         DownloadResult.error(f("The.Most.Unfortunates.1997.1080p", "mkv"), s"Some error message here")
       )
-      val summary = Main.postSummary(results)
+      val summary = Main.postSummary(results, 7000)
       println(summary)
       summary.nonEmpty === true
     }
