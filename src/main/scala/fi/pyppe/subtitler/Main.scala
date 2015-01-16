@@ -21,7 +21,8 @@ object Main extends Logging {
   import org.fusesource.jansi.Ansi.Color._
 
   case class Params(showSupportedLanguages: Boolean = false, files: Seq[File] = Nil,
-                    interactive: Boolean = false, simulate: Boolean = false)
+                    interactive: Boolean = false, simulate: Boolean = false,
+                    showCache: Boolean = false, clearCache: Boolean = false)
   object Params {
     val ImdbId = """.*(tt[0-9]+).*""".r
   }
@@ -30,10 +31,20 @@ object Main extends Logging {
   val parser = new scopt.OptionParser[Params]("subtitler") {
     head("subtitler", "1.0")
 
+    // --clear-cache
+    opt[Unit]('c', "clear-cache") action { (_, p) =>
+      p.copy(clearCache = true)
+    } text "Clear cache"
+
     // --interactive
     opt[Unit]('i', "interactive") action { (_, p) =>
       p.copy(interactive = true)
     } text "Interactive-mode: Select yourself the subtitle to download from available options"
+
+    // --show-cache
+    opt[Unit]("show-cache") action { (_, p) =>
+      p.copy(showCache = true)
+    } text "Show the content of Cache"
 
     // --simulate
     opt[Unit]('s', "simulate") action { (_, p) =>
@@ -62,38 +73,7 @@ object Main extends Logging {
     } text "List of video files or directories (only files without an existing subtitle are processed) to search subtitle(s) for"
 
     help("help") text "Prints this usage text"
-
-    /*
-    opt[File]('o', "out") required() valueName("<file>") action { (x, c) =>
-      c.copy(out = x) } text("out is a required file property")
-    opt[(String, Int)]("max") action { case ((k, v), c) =>
-      c.copy(libName = k, maxCount = v) } validate { x =>
-      if (x._2 > 0) success else failure("Value <max> must be >0")
-    } keyValueName("<libname>", "<max>") text("maximum count for <libname>")
-    opt[Seq[File]]('j', "jars") valueName("<jar1>,<jar2>...") action { (x,c) =>
-      c.copy(jars = x) } text("jars to include")
-    opt[Map[String,String]]("kwargs") valueName("k1=v1,k2=v2...") action { (x, c) =>
-      c.copy(kwargs = x) } text("other arguments")
-    opt[Unit]("verbose") action { (_, c) =>
-      c.copy(verbose = true) } text("verbose is a flag")
-    opt[Unit]("debug") hidden() action { (_, c) =>
-      c.copy(debug = true) } text("this option is hidden in the usage text")
-    note("some notes.\n")
-    help("help") text("prints this usage text")
-    arg[File]("<file>...") unbounded() optional() action { (x, c) =>
-      c.copy(files = c.files :+ x) } text("optional unbounded args")
-    cmd("update") action { (_, c) =>
-      c.copy(mode = "update") } text("update is a command.") children(
-      opt[Unit]("not-keepalive") abbr("nk") action { (_, c) =>
-        c.copy(keepalive = false) } text("disable keepalive"),
-      opt[Boolean]("xyz") action { (x, c) =>
-        c.copy(xyz = x) } text("xyz is a boolean property"),
-      checkConfig { c =>
-        if (c.keepalive && c.xyz) failure("xyz cannot keep alive") else success }
-      )
-      */
   }
-
 
   def main(args: Array[String]) {
     org.fusesource.jansi.AnsiConsole.systemInstall()
@@ -149,19 +129,33 @@ object Main extends Logging {
         case _ =>
           Console.println(sortedLanguages.map(ansiName).mkString(", "))
       }
+    } else if (params.showCache) {
+      println(Cache.readPrettyJson().getOrElse("No cache"))
+    } else if (params.clearCache) {
+      Cache.write(CacheState(Nil))
+      println(ansi.fg(GREEN).a("Cache successfully cleared").reset)
     } else {
+      val ignoredFiles: Set[File] =
+        if (!params.interactive) {
+          Cache.read.map(_.ignoredVideos.map(v => new File(v.file)).toSet).
+            getOrElse(Set.empty)
+        } else Set.empty
       val t = System.currentTimeMillis
-      val work = WorkRequest.create(params)
+      val work = WorkRequest.create(params, ignoredFiles)
       println(preSummary(work))
       val results = downloadSubtitles(work.distinctVideos, params.interactive, params.simulate)
       println(postSummary(results, System.currentTimeMillis - t))
+      if (!params.interactive) {
+        val skippedFiles = results.filter(_.resultType == ResultType.Skipped).map(_.file).toSet
+        Cache.addIgnoredFiles(skippedFiles)
+      }
     }
 
     HttpUtils.http.shutdown()
     dispatch.Http.shutdown()
   }
 
-  case class VideoDir(dir: File, videoCount: Int, videosWithoutSub: List[File]) {
+  case class VideoDir(dir: File, videoCount: Int, videosWithoutSub: List[File], ignoredCount: Int) {
     require(dir.isDirectory, s"$dir is not a directory")
     def videoCountWithoutSubs = videosWithoutSub.size
   }
@@ -169,11 +163,13 @@ object Main extends Logging {
     lazy val distinctVideos = (dirBasedVideos.flatMap(_.videosWithoutSub) ++ videos).distinct
   }
   object WorkRequest {
-    def create(params: Params) = {
+    def create(params: Params, ignoredFiles: Set[File]) = {
       val (dirs, files) = params.files.map(_.getCanonicalFile).toList.partition(_.isDirectory)
       val videoDirs = dirs.map { dir =>
         val videoFiles = FileUtils.findFiles(dir, true, isVideoFile)
-        VideoDir(dir, videoFiles.size, videoFiles.filter(existingSubtitles(_).isEmpty))
+        val newVideoFiles = videoFiles.filter(existingSubtitles(_).isEmpty)
+        val (ignoredVideoFiles, theVideoFiles) = newVideoFiles.partition(ignoredFiles)
+        VideoDir(dir, videoFiles.size, theVideoFiles, ignoredVideoFiles.size)
       }
       WorkRequest(videoDirs, files, params.interactive)
     }
@@ -268,7 +264,7 @@ object Main extends Logging {
 
     line(s"Trying to find $count $subtitlesText:")
     work.dirBasedVideos.sortBy(_.dir.toString).foreach { vd =>
-      line(s" - ${vd.dir} [total videos = ${vd.videoCount}, videos without subs = ${vd.videoCountWithoutSubs}]")
+      line(s" - ${vd.dir} [total videos = ${vd.videoCount}, videos without subs = ${vd.videoCountWithoutSubs}, skipped (cached) = ${vd.ignoredCount}]")
     }
     work.videos.sortBy(_.toString).foreach { f =>
       line(s" - $f")
